@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>사내 그룹웨어 프로토타입 (Phase 1)</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- 1. 로그인 화면 오버레이 -->
+  <div id="login-screen" class="login-overlay">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="logo-badge">GW</div>
+        <h1>사내 그룹웨어 시스템</h1>
+        <p class="subtitle">임직원 전용 포털 로그인 (시뮬레이션 환경)</p>
+      </div>
+
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label for="login-id">아이디</label>
+          <input type="text" id="login-id" placeholder="아이디를 입력하세요 (예: kim)" required />
+        </div>
+        <div class="form-group">
+          <label for="login-pw">비밀번호</label>
+          <input type="password" id="login-pw" placeholder="비밀번호 입력 (테스트용: 1234)" value="1234" required />
+        </div>
+        <div id="login-error" class="error-msg hidden">아이디 또는 비밀번호를 확인해 주세요.</div>
+        <button type="submit" class="btn-primary btn-full">로그인</button>
+      </form>
+
+      <div class="quick-login-section">
+        <p class="quick-title">⚡ 테스트 계정 원클릭 선택 (권한별 시뮬레이션)</p>
+        <div id="quick-account-list" class="quick-account-grid"></div>
+      </div>
+
+      <div class="login-notice">
+        ※ 본 화면은 초기 프로토타입용 시뮬레이션 로그인입니다.<br/>
+        실제 운영 전환 시 서버 측 인증(JWT/Session) 및 권한 검증이 적용됩니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 메인 그룹웨어 레이아웃 -->
+  <div id="app-layout" class="app-container hidden">
+    <!-- 좌측 고정 사이드바 -->
+    <aside class="sidebar">
+      <div class="sidebar-brand" id="brand-home">
+        <div class="logo-badge-sm">GW</div>
+        <div class="brand-text">
+          <strong>우리회사 그룹웨어</strong>
+          <span>Internal Portal v1.0</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <div class="nav-group">
+          <div class="nav-group-title">A. 업무 관리</div>
+          <button class="nav-item active" data-page="dashboard">📊 대시보드</button>
+          <button class="nav-item" data-page="approval">📝 전자결재</button>
+          <button class="nav-item" data-page="leave-calendar">📅 휴가 캘린더</button>
+          <button class="nav-item" data-page="attendance">⏰ 근태 관리 <span class="badge-mini">확장예정</span></button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">B. 회사 정보</div>
+          <button class="nav-item" data-page="organization">🏢 조직도</button>
+          <button class="nav-item" data-page="notice">📢 회사 공지사항</button>
+          <button class="nav-item" data-page="board">💬 사내 게시판</button>
+          <button class="nav-item" data-page="schedule">🗓️ 회사 일정</button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">C. 업무 지원</div>
+          <button class="nav-item" data-page="programs">💻 프로그램 설치 안내</button>
+          <button class="nav-item" data-page="archive">📁 자료실</button>
+        </div>
+
+        <div class="nav-group" id="nav-group-admin">
+          <div class="nav-group-title">D. 시스템 관리</div>
+          <button class="nav-item" data-page="admin">⚙️ 관리자 설정</button>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="btn-reset-storage" class="btn-outline-sm">🔄 테스트 데이터 초기화</button>
+      </div>
+    </aside>
+
+    <!-- 우측 메인 영역 (상단 헤더 + 중앙 콘텐츠 + 하단 푸터) -->
+    <div class="main-wrapper">
+      <header class="top-header">
+        <div class="header-left">
+          <h2 id="current-page-title">대시보드</h2>
+          <span class="sim-badge">프로토타입 시뮬레이션 모드</span>
+        </div>
+
+        <div class="header-right">
+          <!-- 테스트 계정 즉시 전환 드롭다운 -->
+          <div class="switcher-box">
+            <label for="header-user-switcher">테스트 계정 전환:</label>
+            <select id="header-user-switcher"></select>
+          </div>
+
+          <button id="btn-notification" class="icon-btn" title="알림">
+            🔔 <span id="notif-count" class="notif-badge">0</span>
+          </button>
+
+          <div class="user-profile" id="header-user-info">
+            <span class="user-avatar" id="user-avatar">김</span>
+            <div class="user-meta">
+              <strong id="user-name-display">김민수 사원</strong>
+              <span id="user-dept-display">개발팀 · 일반직원</span>
+            </div>
+          </div>
+
+          <button id="btn-logout" class="btn-logout">로그아웃</button>
+        </div>
+      </header>
+
+      <!-- 중앙 동적 페이지 콘텐츠 영역 -->
+      <main id="page-content" class="page-content"></main>
+
+      <!-- 하단 푸터 -->
+      <footer class="app-footer">
+        <div>© 2026 우리회사 사내 그룹웨어 시스템 (내부 전용 프로토타입 · 외부 판매 금지)</div>
+        <div>환경: HTML5 / CSS3 / Vanilla JS (LocalStorage 연동) | Tango OCR 프로젝트와 완전 분리됨</div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 알림 모달 / 토스트 메시지 -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- 스크립트 로드 (데이터 -> 스토리지 -> 인증 -> 대시보드 모듈 -> 메인 라우터) -->
+  <script src="js/data.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/modules/dashboard.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 /* =========================================================
-   사내 그룹웨어 웹 프로토타입 스타일시트 (Phase 1)
-   디자인 컨셉: 밝은 배경 + 차분한 기업용 블루 포인트
+   사내 그룹웨어 웹 프로토타입 스타일시트 (전체 통합 완성본)
+   디자인 컨셉: 밝은 배경 + 차분한 기업용 블루 포인트 + 월간 그리드 캘린더
 ========================================================= */
 :root {
   --primary: #2563eb;
@@ -40,24 +40,35 @@ body {
 }
 
 /* =========================================================
-   1. 로그인 화면
+   1. 로그인 및 회원가입 화면 (Tango 배경 이미지 & 안내문구 정렬 적용)
 ========================================================= */
 .login-overlay {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
   padding: 20px;
+  background-color: #0f172a;
+  background-image: 
+    linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.55)),
+    url("../Tango.png"),
+    url("../Tango.jpg"),
+    url("./Tango.png"),
+    url("./Tango.jpg");
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
 }
 
 .login-card {
-  background: var(--bg-card);
-  width: 100%;
-  max-width: 480px;
+  width: 92%;
+  max-width: 470px;
   border-radius: 14px;
-  padding: 32px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25);
+  padding: 32px 28px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 .login-header {
@@ -88,6 +99,29 @@ body {
   font-size: 13px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.auth-tab-btn {
+  padding: 10px;
+  background: #f1f5f9;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.auth-tab-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: transparent;
 }
 
 .login-form .form-group {
@@ -142,61 +176,20 @@ body {
   font-size: 15px;
 }
 
-.quick-login-section {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px dashed var(--border-color);
-}
-
-.quick-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-
-.quick-account-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.quick-acc-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: #f8fafc;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.15s;
-}
-
-.quick-acc-btn:hover {
-  border-color: var(--primary);
-  background: var(--primary-light);
-}
-
-.quick-acc-btn strong {
-  font-size: 13px;
-  color: var(--text-main);
-}
-
-.quick-acc-btn span {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 .login-notice {
   margin-top: 20px;
-  padding: 10px 12px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 10px;
   background: #f1f5f9;
   border-radius: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
+  letter-spacing: -0.5px;
   color: var(--text-muted);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 /* =========================================================
@@ -305,35 +298,6 @@ body {
   font-weight: 600;
 }
 
-.badge-mini {
-  font-size: 10px;
-  background: rgba(255, 255, 255, 0.15);
-  padding: 2px 6px;
-  border-radius: 99px;
-}
-
-.sidebar-footer {
-  padding: 14px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.btn-outline-sm {
-  width: 100%;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.btn-outline-sm:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-/* 우측 영역 */
 .main-wrapper {
   flex: 1;
   margin-left: 250px;
@@ -381,42 +345,69 @@ body {
   gap: 16px;
 }
 
-.switcher-box {
+.notif-wrapper {
+  position: relative;
+}
+
+.notif-btn {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #f1f5f9;
-  padding: 5px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-}
-
-.switcher-box select {
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.icon-btn {
-  background: none;
-  border: 1px solid var(--border-color);
-  padding: 6px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  position: relative;
-  font-size: 13px;
 }
 
 .notif-badge {
-  background: var(--danger);
+  background: #ef4444;
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
+  font-size: 11px;
+  padding: 2px 6px;
   border-radius: 99px;
+  font-weight: 700;
+}
+
+.notif-dropdown {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  width: 340px;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.notif-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+}
+
+.notif-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.notif-item {
+  padding: 12px 14px;
+  font-size: 12.5px;
+  border-bottom: 1px solid #f1f5f9;
+  line-height: 1.45;
+}
+
+.notif-item.unread {
+  background: #eff6ff;
+  font-weight: 600;
 }
 
 .user-profile {
@@ -466,7 +457,6 @@ body {
   background: #f1f5f9;
 }
 
-/* 중앙 페이지 콘텐츠 */
 .page-content {
   flex: 1;
   padding: 24px 28px;
@@ -475,7 +465,7 @@ body {
 }
 
 /* =========================================================
-   3. 대시보드 위젯 및 카드 그리드
+   3. 대시보드 위젯, 카드, 테이블 및 상태 배지
 ========================================================= */
 .welcome-banner {
   background: linear-gradient(120deg, #1e3a8a, #2563eb);
@@ -615,7 +605,6 @@ body {
   background: #f8fafc;
 }
 
-/* 상태 배지 */
 .status-badge {
   display: inline-block;
   padding: 3px 8px;
@@ -624,21 +613,13 @@ body {
   font-weight: 700;
 }
 
-.status-PENDING { background: #fef3c7; color: #b45309; }
-.status-IN_PROGRESS { background: #dbeafe; color: #1d4ed8; }
+.status-PENDING,
+.status-PENDING_1 { background: #fef3c7; color: #b45309; }
+.status-IN_PROGRESS,
+.status-PENDING_2 { background: #dbeafe; color: #1d4ed8; }
 .status-APPROVED { background: #d1fae5; color: #047857; }
-.status-REJECTED { background: #fee2e2; color: #b91c1c; }
-
-/* 서브 페이지 플레이스홀더 및 안내 카드 */
-.section-banner {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e3a8a;
-  padding: 14px 18px;
-  border-radius: 8px;
-  margin-bottom: 18px;
-  font-size: 13px;
-}
+.status-REJECTED,
+.status-CANCELED { background: #fee2e2; color: #b91c1c; }
 
 .app-footer {
   padding: 16px 28px;
@@ -650,7 +631,56 @@ body {
   justify-content: space-between;
 }
 
-/* 토스트 알림 */
+/* 모달 팝업 및 토스트 알림 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-card {
+  background: #fff;
+  width: 92%;
+  max-width: 520px;
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #64748b;
+}
+
+.modal-body {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 16px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .toast-container {
   position: fixed;
   bottom: 24px;
@@ -670,70 +700,121 @@ body {
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
 }
 
+/* =========================================================
+   4. 월간 그리드 휴가 캘린더 & 다중 휴가 자동 스태킹 바(Bar) UI
+========================================================= */
+.cal-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cal-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cal-month-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  min-width: 120px;
+  text-align: center;
+}
+
+.cal-grid-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+
+.cal-week-row {
+  position: relative;
+  border-left: 1px solid #cbd5e1;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+  background: #fff;
+  transition: min-height 0.15s ease;
+}
+
+.cal-week-row:last-child {
+  border-radius: 0 0 10px 10px;
+}
+
+.cal-day-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cal-day-cell {
+  border-right: 1px solid #f1f5f9;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.cal-day-cell:last-child {
+  border-right: none;
+}
+
+.cal-day-cell.other-month {
+  background: #f8fafc;
+  color: #cbd5e1;
+}
+
+.cal-day-num {
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cal-hol-label {
+  font-size: 10px;
+  color: #dc2626;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 75px;
+}
+
+.cal-events-layer {
+  position: relative;
+  padding-top: 28px;
+  padding-bottom: 6px;
+}
+
+.cal-event-bar {
+  position: absolute;
+  height: 22px;
+  line-height: 22px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  padding: 0 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  z-index: 2;
+}
+
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard-grid { grid-template-columns: 1fr; }
-}
-
-/* 3단계 추가: 회원가입 탭, 결재자 선택 모달 팝업, 상단 알림 드롭다운 */
-.auth-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 20px; }
-.auth-tab-btn { padding: 10px; background: #f1f5f9; border: 1px solid var(--border-color); border-radius: 8px; font-weight: 600; cursor: pointer; color: var(--text-muted); }
-.auth-tab-btn.active { background: var(--primary); color: #fff; border-color: transparent; }
-
-.notif-wrapper { position: relative; }
-.notif-btn { background: #f8fafc; border: 1px solid var(--border-color); padding: 7px 12px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-.notif-badge { background: #ef4444; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 99px; font-weight: 700; }
-.notif-dropdown { position: absolute; right: 0; top: 42px; width: 340px; background: #fff; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.12); z-index: 1000; overflow: hidden; }
-.notif-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid var(--border-color); font-size: 13px; }
-.notif-list { max-height: 280px; overflow-y: auto; }
-.notif-item { padding: 12px 14px; font-size: 12.5px; border-bottom: 1px solid #f1f5f9; line-height: 1.45; }
-.notif-item.unread { background: #eff6ff; font-weight: 600; }
-
-.modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-.modal-card { background: #fff; width: 92%; max-width: 520px; border-radius: 14px; padding: 22px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.modal-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; }
-.modal-body { max-height: 320px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; margin-bottom: 16px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
-.approver-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
-.approver-row:last-child { border-bottom: none; }
-
-/* 1) 첫 로그인/회원가입 화면에 Tango 이미지 배경 적용 */
-.login-overlay {
-  /* Tango.png 또는 Tango.jpg 어느 파일명이든 자동 인식 (최상위 폴더 및 상위 경로 모두 탐색) */
-  background-image: 
-    linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.55)),
-    url("../Tango.png"),
-    url("../Tango.jpg"),
-    url("./Tango.png"),
-    url("./Tango.jpg") !important;
-  background-size: cover !important;
-  background-position: center center !important;
-  background-repeat: no-repeat !important;
-}
-
-/* 2) 로그인 카드 폭 확장 및 반투명 고급 그림자 효과 */
-.login-card {
-  width: 92% !important;
-  max-width: 470px !important; /* 기존보다 폭을 넓혀 안내 문구가 여유 있게 들어가도록 조정 */
-  padding: 32px 28px !important;
-  background: rgba(255, 255, 255, 0.96) !important;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25) !important;
-}
-
-/* 3) 하단 안내 문구 회색 바탕 박스 크기 및 정중앙 정렬 해결 */
-.login-notice {
-  display: block !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-  font-size: 12px !important;
-  padding: 12px 10px !important;
-  letter-spacing: -0.5px !important;
-  white-space: nowrap !important;
-  text-align: center !important;
-  background: #f1f5f9 !important;
-  border-radius: 8px !important;
-  overflow: hidden;
 }

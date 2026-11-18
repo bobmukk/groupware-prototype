@@ -7,19 +7,19 @@
 const INITIAL_SEED_DATA = {
   // 1. 테스트 사용자 (요청서 4번 항목 기준)
   users: [
-    { id: "kim", password: "1234", name: "김민수", dept: "개발팀", position: "사원", duty: "팀원", role: "USER", phone: "010-1000-0001", email: "kim@company.local", annualTotal: 15, annualUsed: 3 },
-    { id: "park", password: "1234", name: "박지훈", dept: "개발팀", position: "대리", duty: "선임", role: "USER", phone: "010-1000-0002", email: "park@company.local", annualTotal: 15, annualUsed: 2 },
-    { id: "lee", password: "1234", name: "이서연", dept: "개발팀", position: "팀장", duty: "부서장", role: "MANAGER", phone: "010-1000-0003", email: "lee@company.local", annualTotal: 18, annualUsed: 4 },
-    { id: "choi", password: "1234", name: "최유진", dept: "경영지원팀", position: "과장", duty: "인사/총무관리자", role: "ADMIN", phone: "010-1000-0004", email: "choi@company.local", annualTotal: 16, annualUsed: 1 },
+    { id: "kim", password: "1234", name: "김도", dept: "개발팀", position: "대리", duty: "팀원", role: "USER", phone: "010-1000-0001", email: "kim@company.local", annualTotal: 15, annualUsed: 3 },
+    { id: "han", password: "1234", name: "한지", dept: "개발팀", position: "과장", duty: "선임", role: "USER", phone: "010-1000-0002", email: "han@company.local", annualTotal: 15, annualUsed: 2 },
+    { id: "young", password: "1234", name: "신대", dept: "개발팀", position: "차장", duty: "부서장", role: "MANAGER", phone: "010-1000-0003", email: "young@company.local", annualTotal: 18, annualUsed: 4 },
+    { id: "soo", password: "1234", name: "김수", dept: "전략기획팀", position: "이사", duty: "인사/총무관리자", role: "ADMIN", phone: "010-1000-0004", email: "soo@company.local", annualTotal: 16, annualUsed: 1 },
     { id: "ceo", password: "1234", name: "대표님", dept: "임원실", position: "대표이사", duty: "CEO (최종결재권자)", role: "CEO", phone: "010-1000-0000", email: "ceo@company.local", annualTotal: 25, annualUsed: 0 }
   ],
 
   // 2. 부서 정보
   departments: [
     { id: "dept-ceo", name: "임원실", parentId: null, manager: "대표님" },
-    { id: "dept-mgmt", name: "경영지원팀", parentId: "dept-ceo", manager: "최유진" },
-    { id: "dept-dev", name: "개발팀", parentId: "dept-ceo", manager: "이서연" },
-    { id: "dept-biz", name: "사업팀", parentId: "dept-ceo", manager: "정현우" }
+    { id: "dept-mgmt", name: "전략기획팀", parentId: "dept-ceo", manager: "김수" },
+    { id: "dept-dev", name: "개발팀", parentId: "dept-ceo", manager: "신대" },
+    { id: "dept-biz", name: "사업팀", parentId: "dept-ceo", manager: "김진" }
   ],
 
   // 3. 전자결재 휴가 신청서 (대시보드 및 결재 연동용 샘플)
@@ -27,63 +27,62 @@ const INITIAL_SEED_DATA = {
     {
       id: "DOC-2026-101",
       applicantId: "kim",
-      applicantName: "김민수",
+      applicantName: "김도",
       dept: "개발팀",
-      position: "사원",
+      position: "대리",
       leaveType: "연차",
       startDate: "2026-11-03",
       endDate: "2026-11-05",
       days: 3,
       reason: "개인 가정사 및 휴식",
-      note: "업무 인수인계: 박지훈 대리",
+      note: "업무 인수인계: ",
       status: "APPROVED", // 최종 승인 완료
       createdAt: "2026-10-28",
       currentStepIndex: 3,
       approvalLine: [
-        { step: 1, userId: "park", name: "박지훈", position: "대리", status: "APPROVED", actedAt: "2026-10-28 10:20", comment: "업무 대행 확인했습니다." },
-        { step: 2, userId: "lee", name: "이서연", position: "팀장", status: "APPROVED", actedAt: "2026-10-28 14:10", comment: "일정 확인 완료, 승인합니다." },
+        { step: 1, userId: "han", name: "한지", position: "과장", status: "APPROVED", actedAt: "2026-10-28 10:20", comment: "업무 대행 확인했습니다." },
+        { step: 2, userId: "young", name: "신대", position: "차장", status: "APPROVED", actedAt: "2026-10-28 14:10", comment: "일정 확인 완료, 승인합니다." },
         { step: 3, userId: "ceo", name: "대표님", position: "대표이사", status: "APPROVED", actedAt: "2026-10-29 09:05", comment: "최종 승인합니다." }
       ]
     },
     {
       id: "DOC-2026-102",
-      applicantId: "park",
-      applicantName: "박지훈",
+      applicantId: "han",
+      applicantName: "한지",
       dept: "개발팀",
-      position: "대리",
+      position: "과장",
       leaveType: "연차",
       startDate: "2026-11-12",
       endDate: "2026-11-13",
       days: 2,
       reason: "가족 행사 참석",
       note: "비상 연락망 유지",
-      status: "IN_PROGRESS", // 1차 이서연 승인 완료 -> 대표님 결재 대기
+      status: "IN_PROGRESS", // 1차 신대영 승인 완료 -> 대표님 결재 대기
       createdAt: "2026-11-04",
       currentStepIndex: 1,
       approvalLine: [
-        { step: 1, userId: "lee", name: "이서연", position: "팀장", status: "APPROVED", actedAt: "2026-11-04 15:00", comment: "승인합니다." },
+        { step: 1, userId: "young", name: "신대", position: "차장", status: "APPROVED", actedAt: "2026-11-04 15:00", comment: "승인합니다." },
         { step: 2, userId: "ceo", name: "대표님", position: "대표이사", status: "WAITING", actedAt: null, comment: "" }
       ]
     },
     {
       id: "DOC-2026-103",
       applicantId: "kim",
-      applicantName: "김민수",
+      applicantName: "김도",
       dept: "개발팀",
-      position: "사원",
+      position: "대리",
       leaveType: "오후반차",
       startDate: "2026-11-18",
       endDate: "2026-11-18",
       days: 0.5,
       reason: "병원 진료",
       note: "14시 이후 외출",
-      status: "PENDING", // 1차 결재자 박지훈 결재 대기
+      status: "PENDING", // 1차 결재자 신대영 결재 대기
       createdAt: "2026-11-05",
       currentStepIndex: 0,
       approvalLine: [
-        { step: 1, userId: "park", name: "박지훈", position: "대리", status: "WAITING", actedAt: null, comment: "" },
-        { step: 2, userId: "lee", name: "이서연", position: "팀장", status: "WAITING", actedAt: null, comment: "" },
-        { step: 3, userId: "ceo", name: "대표님", position: "대표이사", status: "WAITING", actedAt: null, comment: "" }
+        { step: 1, userId: "young", name: "신대", position: "차장", status: "WAITING", actedAt: null, comment: "" },
+        { step: 2, userId: "ceo", name: "대표님", position: "대표이사", status: "WAITING", actedAt: null, comment: "" }
       ]
     }
   ],
@@ -97,9 +96,9 @@ const INITIAL_SEED_DATA = {
 
   // 5. 사내 게시판 최근 글
   boardPosts: [
-    { id: "B-01", category: "업무 공유 게시판", title: "데이터베이스 검수 스크립트 실행 가이드 공유", author: "이서연 팀장", dept: "개발팀", date: "2026-11-04", comments: 3 },
-    { id: "B-02", category: "자유 게시판", title: "탕비실 신규 원두 추천 받습니다 ☕", author: "박지훈 대리", dept: "개발팀", date: "2026-11-04", comments: 5 },
-    { id: "B-03", category: "부서별 게시판", title: "[개발팀] 듀얼 모니터 눈 피로도 절감 설정 팁", author: "김민수 사원", dept: "개발팀", date: "2026-11-05", comments: 2 }
+    { id: "B-01", category: "업무 공유 게시판", title: "데이터베이스 검수 스크립트 실행 가이드 공유", author: "신대 차장", dept: "개발팀", date: "2026-11-04", comments: 3 },
+    { id: "B-02", category: "자유 게시판", title: "탕비실 신규 원두 추천 받습니다 ☕", author: "한지 과장", dept: "개발팀", date: "2026-11-04", comments: 5 },
+    { id: "B-03", category: "부서별 게시판", title: "[개발팀] 듀얼 모니터 눈 피로도 절감 설정 팁", author: "김도 대리", dept: "개발팀", date: "2026-11-05", comments: 2 }
   ],
 
   // 6. 주요 회사 일정

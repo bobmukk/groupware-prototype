@@ -1,110 +1,158 @@
 /**
- * js/auth.js (Supabase 실제 회원가입 및 로그인 연동)
+ * js/auth.js (내 이메일만 마스터 관리자로 지정 + 나머지 전원 관리자 승인 대기)
  */
+const TOKEN_KEY = "gw_supabase_access_token";
+const USER_PROFILE_KEY = "gw_supabase_user_profile";
+
+// 👇 여기에 회원님(관리자)이 회원가입할 때 사용할 이메일 주소를 정확히 적어주세요!
+const MASTER_ADMIN_EMAIL = "dyswn123@naver.com";
 
 const Auth = {
-  // 1. 회원가입 처리
-  async signup(email, password, nameAndPos, dept) {
+  getToken() {
+    return localStorage.getItem(TOKEN_KEY);
+  },
+
+  async signup(email, password, name, position, dept) {
     try {
       const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
         method: "POST",
-        headers: {
-          "apikey": SUPABASE_ANON_KEY,
-          "Content-Type": "application/json"
-        },
+        headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.msg || data.error_description || "회원가입에 실패했습니다.");
 
-      // 가입 성공 시, DB의 사용자 목록에 자동 등록
-      const db = StorageDB.getData();
-      const parts = nameAndPos.split(" ");
-      const name = parts[0] || "임직원";
-      const position = parts[1] || "사원";
+      const token = data.access_token;
+      const userId = data.user ? data.user.id : data.id;
+      if (!token || !userId) throw new Error("Supabase에서 Confirm email 설정을 꺼주세요.");
 
-      const newUser = {
-        id: data.id || email,
-        email,
-        name,
-        dept,
-        position,
-        duty: "팀원",
-        role: dept === "임원실" ? "CEO" : "USER",
-        phone: "010-0000-0000",
-        annualTotal: 15,
-        annualUsed: 0
+      // 내 이메일과 일치할 때만 즉시 ADMIN & APPROVED 부여! (나머지는 전부 PENDING 대기)
+      const isMasterAdmin = (email.trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
+      const role = isMasterAdmin ? "ADMIN" : (position.includes("대표") ? "CEO" : "USER");
+      const approvalStatus = isMasterAdmin ? "APPROVED" : "PENDING";
+
+      const profileRow = {
+        id: userId,
+        email: email.trim(),
+        name: name || "신규직원",
+        dept: dept || "미지정",
+        position: position || "사원",
+        role,
+        approval_status: approvalStatus,
+        annual_total: 15,
+        annual_used: 0
       };
 
-      // 중복 체크 후 추가
-      if (!db.users.some(u => u.email === email)) {
-        db.users.push(newUser);
-        StorageDB.saveData(db);
+      await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates"
+        },
+        body: JSON.stringify(profileRow)
+      });
+
+      // 일반 직원은 가입 신청 직후 로그인 차단 및 안내 메시지 출력
+      if (approvalStatus === "PENDING") {
+        return {
+          success: true,
+          pending: true,
+          message: "✅ 가입 신청이 접수되었습니다! 관리자가 [가입승인 및 직원관리] 메뉴에서 승인하면 로그인하실 수 있습니다."
+        };
       }
 
-      return { success: true, user: newUser };
+      // 마스터 관리자(나)는 가입 즉시 자동 로그인
+      localStorage.setItem(TOKEN_KEY, token);
+      const appUser = this.mapProfileToUser(profileRow);
+      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      return { success: true, pending: false, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
     }
   },
 
-  // 2. 로그인 처리
   async login(email, password) {
     try {
       const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
         method: "POST",
-        headers: {
-          "apikey": SUPABASE_ANON_KEY,
-          "Content-Type": "application/json"
-        },
+        headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error_description || "이메일 또는 비밀번호가 올바르지 않습니다.");
+      if (!res.ok) throw new Error("이메일 또는 비밀번호가 올바르지 않습니다.");
 
-      const db = StorageDB.getData();
-      let user = db.users.find(u => u.email === email);
+      const token = data.access_token;
+      const userId = data.user.id;
 
-      // 만약 DB 목록에 없으면 기본 생성
-      if (!user) {
-        user = {
-          id: data.user?.id || email,
-          email,
-          name: email.split("@")[0],
-          dept: "개발팀",
-          position: "사원",
-          duty: "팀원",
-          role: "USER",
-          phone: "010-0000-0000",
-          annualTotal: 15,
-          annualUsed: 0
-        };
-        db.users.push(user);
-        StorageDB.saveData(db);
+      const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=*`, {
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` }
+      });
+      const rows = await profRes.json();
+      let profileRow = rows && rows[0];
+
+      if (!profileRow) throw new Error("등록된 직원 프로필이 없습니다.");
+
+      // 만약 내가 이미 가입해 둔 계정인데 이메일이 마스터 관리자 이메일이라면 자동으로 ADMIN 승격
+      if (email.trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase() && profileRow.role !== "ADMIN") {
+        profileRow.role = "ADMIN";
+        profileRow.approval_status = "APPROVED";
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
+          method: "PATCH",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ role: "ADMIN", approval_status: "APPROVED" })
+        });
       }
 
-      StorageDB.setSessionUser(user.id);
-      return { success: true, user };
+      // 관리자 미승인 계정 차단
+      if (profileRow.approval_status === "PENDING") {
+        throw new Error("⏳ 아직 관리자 승인 대기 중입니다. 관리자에게 사용 승인을 요청해 주세요.");
+      }
+      if (profileRow.approval_status === "REJECTED") {
+        throw new Error("⛔ 가입이 반려되었거나 사용이 중지된 계정입니다.");
+      }
+
+      localStorage.setItem(TOKEN_KEY, token);
+      const appUser = this.mapProfileToUser(profileRow);
+      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      return { success: true, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
     }
   },
 
+  mapProfileToUser(p) {
+    return {
+      id: p.id,
+      email: p.email,
+      name: p.name,
+      dept: p.dept,
+      position: p.position,
+      role: p.role || "USER",
+      approvalStatus: p.approval_status || "APPROVED",
+      annualTotal: Number(p.annual_total ?? 15),
+      annualUsed: Number(p.annual_used ?? 0)
+    };
+  },
+
   logout() {
-    StorageDB.setSessionUser(null);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_PROFILE_KEY);
   },
 
   getCurrentUser() {
-    return StorageDB.getSessionUser();
+    const raw = localStorage.getItem(USER_PROFILE_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
   },
 
   getRoleLabel(role) {
-    const map = {
-      USER: "일반 직원",
-      MANAGER: "부서장",
-      ADMIN: "시스템 관리자",
-      CEO: "최종 결재권자 (대표이사)"
-    };
+    const map = { USER: "일반 직원", MANAGER: "부서장", ADMIN: "시스템 관리자", CEO: "최종 결재권자 (대표이사)" };
     return map[role] || "일반 직원";
   },
 

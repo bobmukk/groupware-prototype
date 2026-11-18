@@ -35,7 +35,7 @@
         <button type="submit" class="btn-primary btn-full">로그인하기</button>
       </form>
 
-      <!-- 회원가입 폼 (성명 / 직급 / 소속 부서 직접 입력) -->
+      <!-- 회원가입 폼 -->
       <form id="signup-form" class="login-form hidden">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
           <div class="form-group">
@@ -75,7 +75,7 @@
         <div class="logo-badge-sm">GW</div>
         <div class="brand-text">
           <strong>우리회사 그룹웨어</strong>
-          <span>RLS Security v3.0</span>
+          <span>RLS Security v3.1</span>
         </div>
       </div>
 
@@ -94,7 +94,7 @@
         </div>
         <div class="nav-group">
           <div class="nav-group-title">C. 관리자 전용</div>
-          <button class="nav-item" data-page="admin">⚙️ 가입승인 및 직원관리</button>
+          <button class="nav-item" data-page="admin">⚙️ 가입승인 및 연차관리</button>
         </div>
       </nav>
     </aside>
@@ -106,7 +106,7 @@
           <span class="sim-badge">RLS 보안 작동중</span>
         </div>
         <div class="header-right">
-          <!-- 실시간 알림 종 아이콘 및 드롭다운 -->
+          <!-- 실시간 알림 종 아이콘 -->
           <div class="notif-wrapper">
             <button type="button" id="btn-notif-toggle" class="notif-btn">
               🔔 알림 <span id="notif-badge" class="notif-badge hidden">0</span>
@@ -120,13 +120,18 @@
             </div>
           </div>
 
-          <div class="user-profile">
+          <!-- 상단 헤더: 이름 / 직급 / 부서 / 잔여 연차 배너 (클릭 시 내 정보 팝업) -->
+          <div class="user-profile" id="btn-open-profile" title="클릭하여 내 정보 및 연차 상세 보기" style="cursor:pointer; display:flex; align-items:center; gap:10px; background:#f8fafc; padding:6px 12px; border-radius:10px; border:1px solid #e2e8f0;">
             <span class="user-avatar" id="user-avatar">김</span>
             <div class="user-meta">
               <strong id="user-name-display">사용자</strong>
-              <span id="user-dept-display">소속 · 직급</span>
+              <span id="user-dept-display">부서 · 직급</span>
+            </div>
+            <div id="header-leave-badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:4px 10px; border-radius:99px; font-size:12px; font-weight:700;">
+              🌴 잔여 연차: 15일
             </div>
           </div>
+
           <button id="btn-logout" class="btn-logout">로그아웃</button>
         </div>
       </header>
@@ -134,12 +139,12 @@
       <main id="page-content" class="page-content"></main>
 
       <footer class="app-footer">
-        <div>© 2026 사내 클라우드 그룹웨어 (Supabase RLS & 순차결재 적용)</div>
+        <div>© 2026 사내 클라우드 그룹웨어 (Supabase RLS & 연차 자동계산 적용)</div>
       </footer>
     </div>
   </div>
 
-  <!-- 3. 재직자 목록 불러오기 및 결재권자 2명(1차/최종) 선택 팝업 모달 -->
+  <!-- 3. 결재권자 2명 선택 팝업 모달 -->
   <div id="approver-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <div class="modal-header">
@@ -152,6 +157,44 @@
       <div class="modal-body" id="approver-modal-list"></div>
       <div class="modal-footer">
         <button type="button" id="btn-confirm-approvers" class="btn-primary">결재선 지정 완료</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 내 정보 및 연차 현황 확인/수정 모달 (상단 프로필 클릭 시 오픈) -->
+  <div id="profile-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🙋‍♂️ 내 프로필 및 연차 현황</h3>
+        <button type="button" id="btn-close-profile-modal" class="modal-close">✕</button>
+      </div>
+      <div id="profile-leave-summary" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:16px; text-align:center;"></div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>이메일 (계정 ID)</label>
+        <input type="text" id="prof-email" disabled style="width:100%; padding:9px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; color:#64748b;" />
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+        <div class="form-group">
+          <label>성명</label>
+          <input type="text" id="prof-name" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+        <div class="form-group">
+          <label>직급/직책</label>
+          <input type="text" id="prof-pos" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+        <div class="form-group">
+          <label>소속 부서(팀)</label>
+          <input type="text" id="prof-dept" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+        <div class="form-group">
+          <label>휴대폰 번호</label>
+          <input type="text" id="prof-phone" placeholder="예: 010-1234-5678" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-save-profile" class="btn-primary">내 정보 저장하기</button>
       </div>
     </div>
   </div>

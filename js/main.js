@@ -1,5 +1,5 @@
 /**
- * js/main.js (실시간 연차 자동 계산기 + 상단 헤더 잔여연차 배너 + 내 정보 수정 + 관리자 연차 부여 통합본)
+ * js/main.js (진짜 월간 그리드 달력 & 다중 휴가 스태킹 + 휴가 수정/취소/연차복구 통합본)
  */
 const PAGE_TITLES = {
   "dashboard": "대시보드",
@@ -11,13 +11,53 @@ const PAGE_TITLES = {
   "admin": "가입승인 및 임직원 연차관리 (관리자 전용)"
 };
 
+const KR_HOLIDAYS_MAP = {
+  "2026-01-01": "신정",
+  "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
+  "2026-03-01": "삼일절", "2026-03-02": "대체공휴일",
+  "2026-05-01": "근로자의 날", "2026-05-05": "어린이날",
+  "2026-05-24": "부처님오신날", "2026-05-25": "대체공휴일",
+  "2026-06-03": "지방선거", "2026-06-06": "현충일",
+  "2026-08-15": "광복절", "2026-08-17": "대체공휴일",
+  "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴",
+  "2026-10-03": "개천절", "2026-10-05": "대체공휴일", "2026-10-09": "한글날",
+  "2026-12-25": "성탄절",
+
+  "2027-01-01": "신정",
+  "2027-02-06": "설날 연휴", "2027-02-07": "설날", "2027-02-08": "설날 연휴", "2027-02-09": "대체공휴일",
+  "2027-03-01": "삼일절", "2027-05-01": "근로자의 날", "2027-05-05": "어린이날", "2027-05-13": "부처님오신날",
+  "2027-06-06": "현충일", "2027-08-15": "광복절", "2027-08-16": "대체공휴일",
+  "2027-09-14": "추석 연휴", "2027-09-15": "추석", "2027-09-16": "추석 연휴",
+  "2027-10-03": "개천절", "2027-10-04": "대체공휴일", "2027-10-09": "한글날", "2027-10-11": "대체공휴일",
+  "2027-12-25": "성탄절",
+
+  "2028-01-01": "신정",
+  "2028-01-26": "설날 연휴", "2028-01-27": "설날", "2028-01-28": "설날 연휴",
+  "2028-03-01": "삼일절", "2028-04-12": "총선",
+  "2028-05-01": "근로자의 날", "2028-05-02": "부처님오신날", "2028-05-05": "어린이날",
+  "2028-06-06": "현충일", "2028-08-15": "광복절",
+  "2028-10-02": "추석 연휴", "2028-10-03": "추석/개천절", "2028-10-04": "추석 연휴", "2028-10-05": "대체공휴일", "2028-10-09": "한글날",
+  "2028-12-25": "성탄절"
+};
+
+const CUSTOM_HOLIDAY_STORAGE_KEY = "gw_custom_company_holidays";
+const BAR_COLORS = ["#2563eb", "#059669", "#7c3aed", "#db2777", "#d97706", "#0891b2", "#4f46e5"];
+
 const App = {
   currentPage: "dashboard",
   selectedApprover1: null,
   selectedApprover2: null,
+  editingLeaveDocId: null, // 휴가 수정 모드일 때 대상 문서 ID 저장
+  calYear: new Date().getFullYear(),
+  calMonth: new Date().getMonth() + 1,
+  loadedYears: new Set(),
 
   init() {
     StorageDB.init();
+    const curYear = new Date().getFullYear();
+    this.fetchPublicHolidaysFromAPI(curYear);
+    this.fetchPublicHolidaysFromAPI(curYear + 1);
+
     this.bindGlobalEvents();
     const sessionUser = Auth.getCurrentUser();
     if (sessionUser) {
@@ -27,11 +67,79 @@ const App = {
     }
   },
 
+  async fetchPublicHolidaysFromAPI(year) {
+    if (this.loadedYears.has(year)) return;
+    try {
+      const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
+      if (res.ok) {
+        const list = await res.json();
+        list.forEach(item => {
+          if (!KR_HOLIDAYS_MAP[item.date]) {
+            KR_HOLIDAYS_MAP[item.date] = item.localName || item.name;
+          }
+        });
+        this.loadedYears.add(year);
+      }
+    } catch (e) {}
+  },
+
+  getCustomHolidays() {
+    try {
+      return JSON.parse(localStorage.getItem(CUSTOM_HOLIDAY_STORAGE_KEY) || "{}");
+    } catch (e) {
+      return {};
+    }
+  },
+
+  getHolidayName(dateStr) {
+    const customMap = this.getCustomHolidays();
+    return customMap[dateStr] || KR_HOLIDAYS_MAP[dateStr] || null;
+  },
+
+  calculateWorkingDays(startStr, endStr) {
+    if (!startStr || !endStr || endStr < startStr) {
+      return { workingDays: 0, totalSpanDays: 0, weekendCount: 0, holidayNames: [] };
+    }
+
+    const [sy, sm, sd] = startStr.split("-").map(Number);
+    const [ey, em, ed] = endStr.split("-").map(Number);
+    this.fetchPublicHolidaysFromAPI(sy);
+    if (ey !== sy) this.fetchPublicHolidaysFromAPI(ey);
+
+    const cur = new Date(sy, sm - 1, sd);
+    const last = new Date(ey, em - 1, ed);
+
+    let workingDays = 0;
+    let totalSpanDays = 0;
+    let weekendCount = 0;
+    const holidayNames = [];
+
+    while (cur <= last) {
+      totalSpanDays++;
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, "0");
+      const d = String(cur.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+      const dayOfWeek = cur.getDay();
+      const holName = this.getHolidayName(dateStr);
+
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        weekendCount++;
+      } else if (holName) {
+        holidayNames.push(`${m}/${d}(${holName})`);
+      } else {
+        workingDays++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    return { workingDays, totalSpanDays, weekendCount, holidayNames };
+  },
+
   renderQuickAccountButtons() {},
   populateHeaderSwitcher() {},
 
   bindGlobalEvents() {
-    // 1. 로그인
     document.getElementById("login-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = document.getElementById("login-email").value.trim();
@@ -50,7 +158,6 @@ const App = {
       this.enterApp(Auth.getCurrentUser() || res.user);
     });
 
-    // 2. 회원가입
     document.getElementById("signup-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = document.getElementById("signup-name").value.trim();
@@ -79,20 +186,20 @@ const App = {
       this.enterApp(res.user);
     });
 
-    // 3. 사이드바 이동
     document.querySelectorAll(".nav-item").forEach(btn => {
-      btn.addEventListener("click", () => this.navigateTo(btn.getAttribute("data-page")));
+      btn.addEventListener("click", () => {
+        this.editingLeaveDocId = null;
+        this.navigateTo(btn.getAttribute("data-page"));
+      });
     });
 
     document.getElementById("brand-home").addEventListener("click", () => this.navigateTo("dashboard"));
 
-    // 4. 로그아웃
     document.getElementById("btn-logout").addEventListener("click", () => {
       Auth.logout();
       this.showLoginScreen();
     });
 
-    // 5. 실시간 알림 드롭다운
     const notifBtn = document.getElementById("btn-notif-toggle");
     const notifDropdown = document.getElementById("notif-dropdown");
     if (notifBtn && notifDropdown) {
@@ -117,7 +224,6 @@ const App = {
       });
     }
 
-    // 6. 결재권자 선택 모달 이벤트
     const closeModalBtn = document.getElementById("btn-close-modal");
     if (closeModalBtn) {
       closeModalBtn.addEventListener("click", () => {
@@ -129,7 +235,6 @@ const App = {
       confirmApproversBtn.addEventListener("click", () => this.confirmApproverSelection());
     }
 
-    // 7. 상단 헤더 프로필 클릭 -> 내 정보 및 연차 확인/수정 모달 오픈
     const openProfBtn = document.getElementById("btn-open-profile");
     if (openProfBtn) {
       openProfBtn.addEventListener("click", () => this.openProfileModal());
@@ -160,7 +265,6 @@ const App = {
     this.navigateTo("dashboard");
   },
 
-  // 상단 헤더: [이름 직급 | 부서 | 잔여 연차] 배너 실시간 표시
   updateHeaderUserInfo(user) {
     if (!user) return;
     const total = Number(user.annualTotal ?? 15);
@@ -177,7 +281,6 @@ const App = {
     }
   },
 
-  // 상단 프로필 클릭 시 열리는 내 정보 & 연차 요약 팝업
   openProfileModal() {
     const user = Auth.getCurrentUser();
     if (!user) return;
@@ -335,6 +438,240 @@ const App = {
     this.showToast("결재권자 2명이 지정되었습니다.");
   },
 
+  // [추가] 내 휴가 신청서 수정 모드 진입 (상단 폼에 기존 데이터 자동 채움)
+  startEditLeaveRequest(docId) {
+    const db = StorageDB.getData();
+    const doc = (db.leaveRequests || []).find(d => String(d.id) === String(docId));
+    if (!doc) return;
+
+    this.editingLeaveDocId = doc.id;
+    this.selectedApprover1 = (db.users || []).find(u => u.id === doc.approver1Id) || { id: doc.approver1Id, name: doc.approver1Name, position: "" };
+    this.selectedApprover2 = (db.users || []).find(u => u.id === doc.approver2Id) || { id: doc.approver2Id, name: doc.approver2Name, position: "" };
+
+    this.navigateTo("approval");
+    setTimeout(() => {
+      document.getElementById("ap-type").value = doc.leaveType;
+      document.getElementById("ap-start").value = doc.startDate;
+      document.getElementById("ap-end").value = doc.endDate;
+      document.getElementById("ap-reason").value = doc.reason;
+      document.getElementById("ap-type").dispatchEvent(new Event("change"));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 50);
+  },
+
+  cancelEditMode() {
+    this.editingLeaveDocId = null;
+    this.navigateTo("approval");
+  },
+
+  // [추가] 휴가 취소 실행 (결재 전 삭제 / 최종 승인 후 취소 및 연차 복구)
+  async handleCancelLeaveRequest(docId) {
+    const db = StorageDB.getData();
+    const doc = (db.leaveRequests || []).find(d => String(d.id) === String(docId));
+    if (!doc) return;
+
+    const confirmMsg = doc.status === "APPROVED"
+      ? `[승인된 휴가 취소]\n이미 최종 승인된 ${doc.leaveType}(${doc.days}일) 일정입니다.\n취소하시면 차감되었던 연차(${doc.days}일)가 자동 환급(복구)되며 휴가 캘린더에서 제거됩니다. 취소하시겠습니까?`
+      : `신청하신 ${doc.leaveType}(${doc.startDate}~${doc.endDate}) 상신을 취소(삭제)하시겠습니까?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await StorageDB.cancelLeaveRequest(doc);
+      this.showToast(doc.status === "APPROVED" ? "🔄 휴가가 취소되었으며 차감된 연차가 정상 복구되었습니다!" : "🗑️ 휴가 신청이 취소(삭제)되었습니다.");
+      this.navigateTo(this.currentPage);
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  // 달력 월 이동
+  changeCalendarMonth(delta) {
+    this.calMonth += delta;
+    if (this.calMonth > 12) {
+      this.calMonth = 1;
+      this.calYear++;
+    } else if (this.calMonth < 1) {
+      this.calMonth = 12;
+      this.calYear--;
+    }
+    this.fetchPublicHolidaysFromAPI(this.calYear);
+    this.navigateTo("leave-calendar");
+  },
+
+  goCalendarToday() {
+    this.calYear = new Date().getFullYear();
+    this.calMonth = new Date().getMonth() + 1;
+    this.navigateTo("leave-calendar");
+  },
+
+  // [핵심] 월간 그리드 달력 + 겹치는 휴가자 자동 스태킹(Lane 배정) 렌더링
+  renderMonthlyGridCalendar(approvedLeaves) {
+    const year = this.calYear;
+    const month = this.calMonth;
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+
+    // 달력 첫 칸(일요일)과 마지막 칸(토요일) 계산
+    const startGridDate = new Date(firstDay);
+    startGridDate.setDate(firstDay.getDate() - firstDay.getDay());
+
+    const endGridDate = new Date(lastDay);
+    endGridDate.setDate(lastDay.getDate() + (6 - lastDay.getDay()));
+
+    const fmt = (d) => {
+      const yy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yy}-${mm}-${dd}`;
+    };
+
+    const todayStr = fmt(new Date());
+
+    // 주(Week) 단위로 7일씩 쪼개기
+    const weeks = [];
+    const cur = new Date(startGridDate);
+    while (cur <= endGridDate) {
+      const week = [];
+      for (let i = 0; i < 7; i++) {
+        week.push(new Date(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+      weeks.push(week);
+    }
+
+    // 신청자마다 고유 색상 배정
+    const getColorForUser = (name) => {
+      let hash = 0;
+      for (let i = 0; i < (name || "").length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return BAR_COLORS[Math.abs(hash) % BAR_COLORS.length];
+    };
+
+    // 각 주(Week)마다 걸치는 휴가들을 찾아 겹치지 않게 층(Lane) 자동 배치
+    const weekRowsHtml = weeks.map(week => {
+      const weekStartStr = fmt(week[0]);
+      const weekEndStr = fmt(week[6]);
+
+      // 이번 주와 하루라도 겹치는 승인된 휴가 필터링
+      const overlapping = approvedLeaves.filter(lv => lv.endDate >= weekStartStr && lv.startDate <= weekEndStr);
+
+      // 시작일이 빠른 순, 기간이 긴 순으로 정렬하여 스태킹 최적화
+      overlapping.sort((a, b) => {
+        if (a.startDate !== b.startDate) return a.startDate.localeCompare(b.startDate);
+        return b.days - a.days;
+      });
+
+      // 층(Lane) 점유 상태 배열: lanes[laneIndex] = 마지막으로 채워진 요일 인덱스(0~6)
+      const lanes = [];
+      const segments = [];
+
+      overlapping.forEach(lv => {
+        const segStartStr = lv.startDate < weekStartStr ? weekStartStr : lv.startDate;
+        const segEndStr = lv.endDate > weekEndStr ? weekEndStr : lv.endDate;
+
+        const startCol = week.findIndex(d => fmt(d) === segStartStr);
+        const endCol = week.findIndex(d => fmt(d) === segEndStr);
+        if (startCol === -1 || endCol === -1) return;
+
+        // 비어 있는 가장 위쪽 층(Lane) 찾기
+        let assignedLane = -1;
+        for (let l = 0; l < lanes.length; l++) {
+          if (lanes[l] < startCol) {
+            assignedLane = l;
+            lanes[l] = endCol;
+            break;
+          }
+        }
+        if (assignedLane === -1) {
+          assignedLane = lanes.length;
+          lanes.push(endCol);
+        }
+
+        segments.push({
+          doc: lv,
+          startCol,
+          span: endCol - startCol + 1,
+          lane: assignedLane,
+          isContinuedLeft: lv.startDate < weekStartStr,
+          isContinuedRight: lv.endDate > weekEndStr
+        });
+      });
+
+      // 휴가자가 많이 겹칠수록 해당 주의 달력 칸 높이를 자동으로 늘려줌 (기본 96px, 겹치면 26px씩 자동 확장)
+      const rowHeight = Math.max(96, 36 + lanes.length * 26);
+
+      const dayCellsHtml = week.map((d, idx) => {
+        const dStr = fmt(d);
+        const isCurrentMonth = (d.getMonth() + 1) === month;
+        const holName = this.getHolidayName(dStr);
+        const isSun = idx === 0;
+        const isSat = idx === 6;
+        const numColor = (isSun || holName) ? "#dc2626" : isSat ? "#2563eb" : "#1e293b";
+        const todayBadge = dStr === todayStr ? `<span style="background:#2563eb; color:#fff; padding:1px 5px; border-radius:4px; font-size:10px;">오늘</span>` : "";
+
+        return `
+          <div class="cal-day-cell ${isCurrentMonth ? '' : 'other-month'}">
+            <div class="cal-day-num" style="color:${isCurrentMonth ? numColor : '#cbd5e1'};">
+              <span>${d.getDate()} ${todayBadge}</span>
+              ${holName ? `<span class="cal-hol-label" title="${holName}">${holName}</span>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const barsHtml = segments.map(seg => {
+        const leftPct = (seg.startCol * 100 / 7).toFixed(4);
+        const widthPct = (seg.span * 100 / 7).toFixed(4);
+        const topPx = 30 + seg.lane * 25;
+        const bgColor = getColorForUser(seg.doc.applicantName);
+        const radiusLeft = seg.isContinuedLeft ? "0" : "5px";
+        const radiusRight = seg.isContinuedRight ? "0" : "5px";
+
+        return `
+          <div class="cal-event-bar"
+               title="${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
+               style="left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
+            ${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.leaveType})
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="cal-week-row" style="min-height: ${rowHeight}px;">
+          <div class="cal-day-cells">${dayCellsHtml}</div>
+          <div class="cal-events-layer">${barsHtml}</div>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="cal-toolbar">
+        <div class="cal-nav-group">
+          <button type="button" class="btn-logout" onclick="App.changeCalendarMonth(-1)">◀ 이전 달</button>
+          <div class="cal-month-title">${year}년 ${String(month).padStart(2, "0")}월</div>
+          <button type="button" class="btn-logout" onclick="App.changeCalendarMonth(1)">다음 달 ▶</button>
+          <button type="button" class="btn-logout" style="font-size:12px;" onclick="App.goCalendarToday()">오늘</button>
+        </div>
+        <div style="font-size:12.5px; color:#64748b;">
+          💡 같은 날짜에 여러 휴가자가 겹치면 <strong>달력 칸 높이가 자동 조절되며 줄이 위아래로 나란히 배치</strong>됩니다.
+        </div>
+      </div>
+
+      <div class="cal-grid-header">
+        <div style="color:#dc2626;">일</div>
+        <div>월</div>
+        <div>화</div>
+        <div>수</div>
+        <div>목</div>
+        <div>금</div>
+        <div style="color:#2563eb;">토</div>
+      </div>
+      <div>${weekRowsHtml}</div>
+    `;
+  },
+
   renderSubPageContent(container, pageKey, user) {
     const db = StorageDB.getData();
     const myProfile = (db.users || []).find(u => u.id === user.id) || user;
@@ -342,18 +679,18 @@ const App = {
     const usedLeave = Number(myProfile.annualUsed ?? 0);
     const remainLeave = Number((totalLeave - usedLeave).toFixed(1));
 
-    // 1. 전자결재 및 휴가 신청 (실시간 연차 자동 계산기 포함)
+    // 1. 전자결재 및 휴가 신청 (휴가 수정 및 취소/연차복구 기능 포함)
     if (pageKey === "approval") {
-      const ap1Text = this.selectedApprover1 ? `${this.selectedApprover1.name} ${this.selectedApprover1.position}` : "미지정";
-      const ap2Text = this.selectedApprover2 ? `${this.selectedApprover2.name} ${this.selectedApprover2.position}` : "미지정";
+      const ap1Text = this.selectedApprover1 ? `${this.selectedApprover1.name} ${this.selectedApprover1.position || ""}` : "미지정";
+      const ap2Text = this.selectedApprover2 ? `${this.selectedApprover2.name} ${this.selectedApprover2.position || ""}` : "미지정";
       const todayStr = new Date().toISOString().slice(0, 10);
+      const isEditing = Boolean(this.editingLeaveDocId);
 
       container.innerHTML = `
-        <!-- 내 연차 현황 및 실시간 차감 계산 배너 -->
         <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%); border:1px solid #bfdbfe;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <h4 style="color:#1e3a8a; margin:0;">🌴 ${user.name} ${user.position}님의 연차 현황 및 실시간 차감 계산</h4>
-            <span style="font-size:12px; color:#475569;">※ 최종 결재 승인 시 잔여 연차에서 자동 차감됩니다.</span>
+            <span style="font-size:12px; color:#1d4ed8; font-weight:600;">✔ 주말(토·일) 및 법정공휴일·대체공휴일 자동 제외</span>
           </div>
           <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; text-align:center;">
             <div style="background:#fff; padding:12px; border-radius:10px; border:1px solid #e2e8f0;">
@@ -370,15 +707,15 @@ const App = {
             </div>
             <div style="background:#fff; padding:12px; border-radius:10px; border:2px solid #10b981;">
               <div style="font-size:12px; color:#047857; font-weight:700; margin-bottom:4px;">금번 차감 ➔ 예상 잔여</div>
-              <strong id="calc-preview-text" style="font-size:18px; color:#047857;">-1일 ➔ ${(remainLeave - 1).toFixed(1)}일</strong>
+              <strong id="calc-preview-text" style="font-size:18px; color:#047857;">계산 중...</strong>
+              <div id="calc-exclude-detail" style="font-size:11px; color:#64748b; margin-top:3px;"></div>
             </div>
           </div>
         </div>
 
-        <!-- 휴가 기안 작성 카드 -->
-        <div class="card" style="margin-bottom:18px;">
+        <div class="card" style="margin-bottom:18px; ${isEditing ? 'border:2px solid #f59e0b;' : ''}">
           <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-            <h4>✍️ 휴가 신청서 작성</h4>
+            <h4>${isEditing ? "✏️ 휴가 신청서 내용 수정 모드" : "✍️ 휴가 신청서 작성"}</h4>
             <button type="button" class="btn-primary" id="btn-open-approver-popup" style="background:#0f172a;">
               👥 재직자 목록에서 결재권자 2명 선택
             </button>
@@ -414,36 +751,52 @@ const App = {
           </div>
           <div style="display:flex; gap:8px; margin-top:10px;">
             <input type="text" id="ap-reason" placeholder="휴가 사유를 입력하세요 (본인과 결재자에게만 공개됩니다)" style="flex:1; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
-            <button class="btn-primary" id="btn-submit-ap">휴가 상신하기</button>
+            <button class="btn-primary" id="btn-submit-ap" style="${isEditing ? 'background:#d97706;' : ''}">
+              ${isEditing ? "수정 완료 및 재상신" : "휴가 상신하기"}
+            </button>
+            ${isEditing ? `<button type="button" class="btn-logout" onclick="App.cancelEditMode()">수정 취소</button>` : ""}
           </div>
         </div>
 
-        <!-- 결재 문서 목록 -->
         <div class="card">
-          <div class="card-header"><h4>📝 결재 문서 목록 (본인 신청 건 및 내 결재 차례 문서)</h4></div>
+          <div class="card-header"><h4>📝 결재 문서 목록 (본인 신청 건 수정·취소 및 결재 처리)</h4></div>
           <table class="list-table">
-            <thead><tr><th>신청자</th><th>휴가종류 / 차감일수</th><th>1차 결재자</th><th>최종 결재권자</th><th>현재 상태</th><th>결재 처리</th></tr></thead>
+            <thead><tr><th>신청자</th><th>휴가종류 / 실차감일수</th><th>1차 결재자</th><th>최종 결재권자</th><th>현재 상태</th><th>결재 / 수정·취소</th></tr></thead>
             <tbody>
               ${(db.leaveRequests || []).length === 0 ? `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">조회된 휴가 신청 내역이 없습니다.</td></tr>` : ""}
               ${(db.leaveRequests || []).map(doc => {
                 const isTurnStep1 = (doc.status === "PENDING_1" || doc.status === "PENDING") && doc.approver1Id === user.id;
                 const isTurnStep2 = (doc.status === "PENDING_2" || doc.status === "IN_PROGRESS") && doc.approver2Id === user.id;
+                const isMyDoc = doc.applicantId === user.id;
+                const canEdit = isMyDoc && (doc.status === "PENDING_1" || doc.status === "PENDING");
+                const canCancel = isMyDoc && doc.status !== "CANCELED";
 
                 return `
                   <tr>
                     <td><strong>${doc.applicantName}</strong><br/><span style="font-size:12px; color:#64748b;">${doc.dept} · ${doc.position}</span></td>
-                    <td><strong>${doc.leaveType}</strong> (${doc.days}일)<br/><span style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</span></td>
+                    <td><strong>${doc.leaveType}</strong> (${doc.days}일 차감)<br/><span style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</span></td>
                     <td>${doc.approver1Name || "-"}<br/><span style="font-size:11px;">${doc.approver1Status === "APPROVED" ? "✅ 1차승인" : doc.approver1Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
                     <td>${doc.approver2Name || "-"}<br/><span style="font-size:11px;">${doc.approver2Status === "APPROVED" ? "✅ 최종승인" : doc.approver2Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
                     <td><span class="status-badge status-${doc.status}">${this.getLeaveStatusLabel(doc.status)}</span></td>
                     <td>
-                      ${isTurnStep1 ? `
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="App.handleSequentialApproval('${doc.id}', 1, true)">1차 승인</button>
-                        <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626;" onclick="App.handleSequentialApproval('${doc.id}', 1, false)">반려</button>
-                      ` : isTurnStep2 ? `
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px; background:#059669;" onclick="App.handleSequentialApproval('${doc.id}', 2, true)">최종 승인</button>
-                        <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626;" onclick="App.handleSequentialApproval('${doc.id}', 2, false)">반려</button>
-                      ` : `<span style="font-size:12px; color:#94a3b8;">-</span>`}
+                      <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                        ${isTurnStep1 ? `
+                          <button class="btn-primary" style="padding:5px 8px; font-size:11.5px;" onclick="App.handleSequentialApproval('${doc.id}', 1, true)">1차 승인</button>
+                          <button class="btn-logout" style="padding:5px 8px; font-size:11.5px; color:#dc2626;" onclick="App.handleSequentialApproval('${doc.id}', 1, false)">반려</button>
+                        ` : ""}
+                        ${isTurnStep2 ? `
+                          <button class="btn-primary" style="padding:5px 8px; font-size:11.5px; background:#059669;" onclick="App.handleSequentialApproval('${doc.id}', 2, true)">최종 승인</button>
+                          <button class="btn-logout" style="padding:5px 8px; font-size:11.5px; color:#dc2626;" onclick="App.handleSequentialApproval('${doc.id}', 2, false)">반려</button>
+                        ` : ""}
+                        ${canEdit ? `
+                          <button class="btn-logout" style="padding:5px 8px; font-size:11.5px; color:#2563eb; border-color:#bfdbfe;" onclick="App.startEditLeaveRequest('${doc.id}')">✏️ 수정</button>
+                        ` : ""}
+                        ${canCancel ? `
+                          <button class="btn-logout" style="padding:5px 8px; font-size:11.5px; color:#dc2626; border-color:#fecaca;" onclick="App.handleCancelLeaveRequest('${doc.id}')">
+                            ${doc.status === "APPROVED" ? "🔄 휴가취소(연차복구)" : "🗑️ 상신취소"}
+                          </button>
+                        ` : ""}
+                      </div>
                     </td>
                   </tr>
                 `;
@@ -453,29 +806,45 @@ const App = {
         </div>
       `;
 
-      // 실시간 일수 및 예상 잔여 연차 자동 계산 함수
       const updateLeavePreview = () => {
         const typeVal = document.getElementById("ap-type").value;
         const startVal = document.getElementById("ap-start").value;
         const endInput = document.getElementById("ap-end");
         const previewEl = document.getElementById("calc-preview-text");
+        const detailEl = document.getElementById("calc-exclude-detail");
 
         if (typeVal.includes("반차")) {
           endInput.value = startVal;
         }
         const endVal = endInput.value;
+        const calc = this.calculateWorkingDays(startVal, endVal);
 
         let reqDays = 0;
         if (typeVal.includes("미차감")) {
           reqDays = 0;
         } else if (typeVal.includes("반차")) {
-          reqDays = 0.5;
-        } else if (startVal && endVal && endVal >= startVal) {
-          reqDays = Math.floor((new Date(endVal) - new Date(startVal)) / (1000 * 60 * 60 * 24)) + 1;
+          reqDays = calc.workingDays > 0 ? 0.5 : 0;
+        } else {
+          reqDays = calc.workingDays;
+        }
+
+        const excludedParts = [];
+        if (calc.weekendCount > 0) excludedParts.push(`주말 ${calc.weekendCount}일`);
+        if (calc.holidayNames.length > 0) excludedParts.push(`공휴일 ${calc.holidayNames.length}일(${calc.holidayNames.join(", ")})`);
+
+        if (excludedParts.length > 0) {
+          detailEl.textContent = `총 ${calc.totalSpanDays}일 중 ${excludedParts.join(" · ")} 자동 제외됨`;
+          detailEl.style.color = "#2563eb";
+        } else {
+          detailEl.textContent = `평일 기준 ${reqDays}일 적용`;
+          detailEl.style.color = "#64748b";
         }
 
         const expectedRemain = Number((remainLeave - reqDays).toFixed(1));
-        if (expectedRemain < 0) {
+        if (reqDays === 0 && !typeVal.includes("미차감")) {
+          previewEl.style.color = "#dc2626";
+          previewEl.textContent = `0일 (선택 기간이 모두 휴일입니다)`;
+        } else if (expectedRemain < 0) {
           previewEl.style.color = "#dc2626";
           previewEl.textContent = `-${reqDays}일 ➔ 잔여 부족 (${expectedRemain}일)`;
         } else {
@@ -505,30 +874,50 @@ const App = {
         if (endDate < startDate) return alert("종료일이 시작일보다 빠를 수 없습니다.");
 
         const { reqDays, expectedRemain } = updateLeavePreview();
+        if (reqDays <= 0 && !leaveType.includes("미차감")) {
+          return alert("선택하신 기간은 모두 주말 또는 공휴일이어서 차감할 평일이 없습니다.");
+        }
         if (expectedRemain < 0) {
           return alert(`잔여 연차(${remainLeave}일)가 부족하여 ${reqDays}일 휴가를 신청할 수 없습니다.`);
         }
 
         try {
-          await StorageDB.createLeaveRequest({
-            applicant_id: user.id,
-            applicant_name: user.name,
-            dept: user.dept,
-            position: user.position,
-            leave_type: leaveType,
-            start_date: startDate,
-            end_date: endDate,
-            days: reqDays,
-            reason,
-            approver1_id: this.selectedApprover1.id,
-            approver1_name: `${this.selectedApprover1.name} ${this.selectedApprover1.position}`,
-            approver1_status: "WAITING",
-            approver2_id: this.selectedApprover2.id,
-            approver2_name: `${this.selectedApprover2.name} ${this.selectedApprover2.position}`,
-            approver2_status: "WAITING",
-            status: "PENDING_1"
-          });
-          this.showToast("휴가 신청서가 상신되었으며 1차 결재자에게 알림이 발송되었습니다!");
+          if (this.editingLeaveDocId) {
+            const targetDoc = (db.leaveRequests || []).find(d => String(d.id) === String(this.editingLeaveDocId));
+            await StorageDB.updateLeaveRequest(this.editingLeaveDocId, {
+              leave_type: leaveType,
+              start_date: startDate,
+              end_date: endDate,
+              days: reqDays,
+              reason,
+              approver1_id: this.selectedApprover1.id,
+              approver1_name: `${this.selectedApprover1.name} ${this.selectedApprover1.position || ""}`.trim(),
+              approver2_id: this.selectedApprover2.id,
+              approver2_name: `${this.selectedApprover2.name} ${this.selectedApprover2.position || ""}`.trim()
+            }, targetDoc);
+            this.editingLeaveDocId = null;
+            this.showToast("✏️ 휴가 신청서가 수정되어 재상신되었습니다!");
+          } else {
+            await StorageDB.createLeaveRequest({
+              applicant_id: user.id,
+              applicant_name: user.name,
+              dept: user.dept,
+              position: user.position,
+              leave_type: leaveType,
+              start_date: startDate,
+              end_date: endDate,
+              days: reqDays,
+              reason,
+              approver1_id: this.selectedApprover1.id,
+              approver1_name: `${this.selectedApprover1.name} ${this.selectedApprover1.position || ""}`.trim(),
+              approver1_status: "WAITING",
+              approver2_id: this.selectedApprover2.id,
+              approver2_name: `${this.selectedApprover2.name} ${this.selectedApprover2.position || ""}`.trim(),
+              approver2_status: "WAITING",
+              status: "PENDING_1"
+            });
+            this.showToast(`휴가 신청서(실차감 ${reqDays}일)가 상신되었습니다!`);
+          }
           this.navigateTo("approval");
         } catch (err) {
           alert(err.message);
@@ -537,7 +926,18 @@ const App = {
       return;
     }
 
-    // 2. 관리자 전용: 가입 승인 + 전 직원 일괄 연차 부여 + 직원별 연차/직급 조정
+    // 2. 전사 휴가 캘린더 (월간 그리드 달력 + 겹치는 휴가 자동 스태킹)
+    if (pageKey === "leave-calendar") {
+      const approved = (db.leaveRequests || []).filter(r => r.status === "APPROVED");
+      container.innerHTML = `
+        <div class="card">
+          ${this.renderMonthlyGridCalendar(approved)}
+        </div>
+      `;
+      return;
+    }
+
+    // 3. 관리자 전용 페이지
     if (pageKey === "admin") {
       if (!Auth.isAdmin(user)) {
         container.innerHTML = `<div class="card"><h3>⛔ 시스템 관리자(또는 대표이사)만 접근할 수 있는 메뉴입니다.</h3></div>`;
@@ -546,9 +946,10 @@ const App = {
 
       const allUsers = db.users || [];
       const pendingUsers = allUsers.filter(u => u.approvalStatus === "PENDING");
+      const customHolidays = this.getCustomHolidays();
+      const customEntries = Object.entries(customHolidays).sort((a, b) => a[0].localeCompare(b[0]));
 
       container.innerHTML = `
-        <!-- 신규 가입 승인 대기 -->
         <div class="card" style="margin-bottom:18px; border-left:4px solid #f59e0b;">
           <div class="card-header"><h4>⏳ 신규 가입 승인 대기 목록 (${pendingUsers.length}명)</h4></div>
           ${pendingUsers.length === 0
@@ -573,7 +974,6 @@ const App = {
           }
         </div>
 
-        <!-- 전 직원 일괄 연차 부여 -->
         <div class="card" style="margin-bottom:18px; border-left:4px solid #2563eb;">
           <div class="card-header"><h4>🎁 전 직원 기본 연차 일괄 세팅 (초기 일괄 부여)</h4></div>
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -587,12 +987,26 @@ const App = {
           </div>
         </div>
 
-        <!-- 직원별 개별 연차 부여 및 조정 -->
+        <div class="card" style="margin-bottom:18px; border-left:4px solid #10b981;">
+          <div class="card-header"><h4>📅 법정공휴일·대체공휴일 자동 연동 현황 및 임시공휴일 추가</h4></div>
+          <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+            <input type="date" id="custom-hol-date" style="padding:8px; border:1px solid #cbd5e1; border-radius:6px;" />
+            <input type="text" id="custom-hol-name" placeholder="예: 회사 창립기념일, 정부 임시공휴일" style="flex:1; min-width:200px; padding:8px; border:1px solid #cbd5e1; border-radius:6px;" />
+            <button type="button" class="btn-primary" id="btn-add-custom-hol" style="background:#059669;">+ 사내 휴일 추가</button>
+          </div>
+          ${customEntries.length > 0 ? `
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              ${customEntries.map(([d, name]) => `
+                <span style="background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:4px 10px; border-radius:99px; font-size:12px;">
+                  ${d} (${name}) <button onclick="App.removeCustomHoliday('${d}')" style="border:none; background:none; color:#dc2626; cursor:pointer; font-weight:700;">✕</button>
+                </span>
+              `).join("")}
+            </div>
+          ` : ""}
+        </div>
+
         <div class="card">
           <div class="card-header"><h4>👥 임직원별 연차 부여 및 잔여 일수 관리 (${allUsers.length}명)</h4></div>
-          <p style="font-size:12.5px; color:#64748b; margin-bottom:12px;">
-            직급·근속연수에 따라 직원마다 <strong>총 부여 연차</strong>와 <strong>사용 연차</strong>를 개별 수정한 뒤 우측 <strong>[연차 저장]</strong>을 누르세요.
-          </p>
           <table class="list-table">
             <thead>
               <tr>
@@ -641,30 +1055,17 @@ const App = {
           alert(err.message);
         }
       };
-      return;
-    }
 
-    // 3. 휴가 캘린더
-    if (pageKey === "leave-calendar") {
-      const approved = (db.leaveRequests || []).filter(r => r.status === "APPROVED");
-      container.innerHTML = `
-        <div class="card">
-          <div class="card-header"><h4>📅 최종 승인된 전사 휴가 캘린더 (연속 가로선 ━━━━ 시각화)</h4></div>
-          <div style="display:flex; flex-direction:column; gap:10px; padding:10px 0;">
-            ${approved.length === 0 ? `<p style="color:#94a3b8; font-size:13px;">아직 최종 승인된 휴가 일정이 없습니다.</p>` : ""}
-            ${approved.map(a => `
-              <div style="display:flex; align-items:center; gap:12px; background:#eff6ff; border-left:4px solid #2563eb; padding:10px 14px; border-radius:6px;">
-                <strong style="min-width:130px; color:#1e3a8a;">${a.applicantName} (${a.leaveType})</strong>
-                <div style="flex:1; display:flex; align-items:center; gap:8px;">
-                  <span style="font-size:12px; font-weight:700; color:#2563eb;">${a.startDate}</span>
-                  <div style="flex:1; height:6px; background:#2563eb; border-radius:99px;"></div>
-                  <span style="font-size:12px; font-weight:700; color:#2563eb;">${a.endDate} (${a.days}일)</span>
-                </div>
-              </div>
-            `).join("")}
-          </div>
-        </div>
-      `;
+      document.getElementById("btn-add-custom-hol").onclick = () => {
+        const d = document.getElementById("custom-hol-date").value;
+        const name = document.getElementById("custom-hol-name").value.trim();
+        if (!d || !name) return alert("날짜와 휴일 명칭을 모두 입력해 주세요.");
+        const map = this.getCustomHolidays();
+        map[d] = name;
+        localStorage.setItem(CUSTOM_HOLIDAY_STORAGE_KEY, JSON.stringify(map));
+        this.showToast(`${d} (${name}) 휴일이 등록되었습니다.`);
+        this.navigateTo("admin");
+      };
       return;
     }
 
@@ -789,12 +1190,21 @@ const App = {
     }
   },
 
+  removeCustomHoliday(dateStr) {
+    const map = this.getCustomHolidays();
+    delete map[dateStr];
+    localStorage.setItem(CUSTOM_HOLIDAY_STORAGE_KEY, JSON.stringify(map));
+    this.showToast("사내 지정 휴일이 삭제되었습니다.");
+    this.navigateTo("admin");
+  },
+
   getLeaveStatusLabel(status) {
     const map = {
       PENDING_1: "1차 결재 대기",
       PENDING_2: "1차 승인 (최종 대기)",
       APPROVED: "최종 승인 (연차차감)",
       REJECTED: "결재 반려",
+      CANCELED: "취소됨 (연차복구)",
       PENDING: "1차 결재 대기",
       IN_PROGRESS: "최종 결재 대기"
     };
@@ -838,7 +1248,6 @@ const App = {
     }
   },
 
-  // 관리자 전용: 직원 개별 연차 저장
   async saveUserLeave(targetUserId) {
     const totalVal = document.getElementById(`total-${targetUserId}`).value;
     const usedVal = document.getElementById(`used-${targetUserId}`).value;

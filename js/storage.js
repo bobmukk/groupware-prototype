@@ -1,5 +1,5 @@
 /**
- * js/storage.js (연차 자동 차감 + 관리자 연차 일괄/개별 부여 + 내 프로필 수정 연동)
+ * js/storage.js (휴가 수정 / 상신 취소 / 승인된 휴가 취소 시 연차 자동 환급 포함)
  */
 
 const SUPABASE_URL = "https://dttlbhfcdxanjozveuje.supabase.co";
@@ -38,7 +38,6 @@ const StorageDB = {
       const localDb = this.getData();
       let hasChanged = false;
 
-      // 1) 게시판·공지사항 동기화
       const stateRes = await fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.${STATE_ROW_ID}&select=data`, {
         headers: {
           "apikey": SUPABASE_ANON_KEY,
@@ -56,7 +55,6 @@ const StorageDB = {
 
       const currentUser = (typeof Auth !== "undefined") ? Auth.getCurrentUser() : null;
       if (currentUser && Auth.getToken()) {
-        // 2) 전체 재직자 명부(profiles) 불러오기 + 내 최신 연차 정보 동기화
         const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=*&order=name.asc`, {
           headers: this.getHeaders()
         });
@@ -67,7 +65,6 @@ const StorageDB = {
               ...Auth.mapProfileToUser(p),
               phone: p.phone || ""
             }));
-            // 현재 로그인한 내 프로필(연차·직급·부서) 최신화
             const myLatest = localDb.users.find(u => u.id === currentUser.id);
             if (myLatest) {
               localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(myLatest));
@@ -79,7 +76,6 @@ const StorageDB = {
           }
         }
 
-        // 3) 휴가 신청서(leave_requests) 불러오기
         const leaveRes = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?select=*&order=created_at.desc`, {
           headers: this.getHeaders()
         });
@@ -91,7 +87,6 @@ const StorageDB = {
           }
         }
 
-        // 4) 내 알림(notifications) 불러오기
         const notifRes = await fetch(`${SUPABASE_URL}/rest/v1/notifications?receiver_id=eq.${currentUser.id}&select=*&order=created_at.desc`, {
           headers: this.getHeaders()
         });
@@ -143,12 +138,7 @@ const StorageDB = {
       approver2Id: r.approver2_id,
       approver2Name: r.approver2_name,
       approver2Status: r.approver2_status,
-      status: r.status,
-      currentStepIndex: r.status === "PENDING_2" ? 1 : 0,
-      approvalLine: [
-        { step: 1, userId: r.approver1_id, name: r.approver1_name, status: r.approver1_status },
-        { step: 2, userId: r.approver2_id, name: r.approver2_name, status: r.approver2_status }
-      ]
+      status: r.status
     };
   },
 
@@ -170,7 +160,73 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
-  // 순차 결재 처리 + 2차(최종) 승인 시 신청자 사용 연차(annual_used) 자동 차감 반영
+  // [추가 1] 결재 대기 중인 내 휴가 신청서 내용(날짜/종류/사유) 수정
+  async updateLeaveRequest(docId, updatedFields, doc) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?id=eq.${docId}`, {
+      method: "PATCH",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({
+        ...updatedFields,
+        approver1_status: "WAITING",
+        approver2_status: "WAITING",
+        status: "PENDING_1"
+      })
+    });
+    if (!res.ok) throw new Error("휴가 신청서 수정에 실패했습니다.");
+
+    if (doc && doc.approver1Id) {
+      await this.sendNotification(
+        doc.approver1Id,
+        `✏️ [휴가 내용 수정] ${doc.applicantName}님이 휴가 신청 내용을 (${updatedFields.start_date}~${updatedFields.end_date}, ${updatedFields.days}일)로 수정하여 재상신했습니다.`
+      );
+    }
+    await this.syncFromCloud();
+  },
+
+  // [추가 2] 휴가 취소 (대기 중인 문서는 삭제 / 최종 승인된 문서는 취소 처리 후 차감된 연차 자동 복구!)
+  async cancelLeaveRequest(doc) {
+    if (doc.status === "APPROVED") {
+      // 1) 상태를 CANCELED(취소됨)로 변경
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?id=eq.${doc.id}`, {
+        method: "PATCH",
+        headers: this.getHeaders(true),
+        body: JSON.stringify({ status: "CANCELED" })
+      });
+      if (!res.ok) throw new Error("승인된 휴가 취소에 실패했습니다.");
+
+      // 2) 차감되었던 사용 연차(annual_used) 자동 환급(차감 복구)
+      if (!doc.leaveType.includes("미차감")) {
+        const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${doc.applicantId}&select=annual_used`, {
+          headers: this.getHeaders()
+        });
+        if (profRes.ok) {
+          const rows = await profRes.json();
+          const currentUsed = Number(rows?.[0]?.annual_used || 0);
+          const refundedUsed = Math.max(0, Number((currentUsed - Number(doc.days)).toFixed(1)));
+          await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${doc.applicantId}`, {
+            method: "PATCH",
+            headers: this.getHeaders(true),
+            body: JSON.stringify({ annual_used: refundedUsed })
+          });
+        }
+      }
+
+      await this.sendNotification(
+        doc.approver2Id,
+        `🔄 [승인 휴가 취소] ${doc.applicantName}님이 승인된 ${doc.leaveType}(${doc.startDate}~${doc.endDate}, ${doc.days}일) 일정을 취소하여 연차가 복구되었습니다.`
+      );
+    } else {
+      // 결재 대기 중이거나 반려된 문서는 깔끔하게 삭제
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?id=eq.${doc.id}`, {
+        method: "DELETE",
+        headers: this.getHeaders()
+      });
+      if (!res.ok) throw new Error("휴가 상신 취소에 실패했습니다.");
+    }
+
+    await this.syncFromCloud();
+  },
+
   async processLeaveApproval(doc, stepNumber, isApprove) {
     let updateFields = {};
     if (stepNumber === 1) {
@@ -199,7 +255,6 @@ const StorageDB = {
         `🔔 [최종 결재 요청] ${doc.applicantName}님의 ${doc.leaveType}(${doc.days}일) 건이 1차 승인되어 최종 결재 대기 중입니다.`
       );
     } else if (stepNumber === 2 && isApprove) {
-      // [핵심] 최종 승인 시 신청자의 사용 연차(annual_used) 자동 증가 (단, 공가/경조는 연차 미차감)
       if (!doc.leaveType.includes("미차감")) {
         const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${doc.applicantId}&select=annual_used`, {
           headers: this.getHeaders()
@@ -218,7 +273,7 @@ const StorageDB = {
 
       await this.sendNotification(
         doc.applicantId,
-        `🎉 [최종 승인 완료] 신청하신 ${doc.leaveType}(${doc.days}일) 건이 최종 승인되어 연차에 자동 반영되었습니다.`
+        `🎉 [최종 승인 완료] 신청하신 ${doc.leaveType}(${doc.days}일) 건이 최종 승인되어 연차 및 휴가 캘린더에 반영되었습니다.`
       );
     } else if (!isApprove) {
       await this.sendNotification(
@@ -230,7 +285,6 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
-  // 관리자 전용: 전 직원 총 연차 일괄 부여 (초기 세팅용)
   async bulkUpdateAnnualLeave(totalDays, resetUsed = false) {
     const bodyData = resetUsed
       ? { annual_total: Number(totalDays), annual_used: 0 }
@@ -245,7 +299,6 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
-  // 관리자 전용: 특정 직원의 총 연차 / 사용 연차 개별 수정
   async updateSingleUserLeave(userId, annualTotal, annualUsed) {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
       method: "PATCH",
@@ -259,7 +312,6 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
-  // 직원 본인: 내 프로필(이름/직급/부서/연락처) 수정
   async updateMyProfile(userId, fields) {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
       method: "PATCH",

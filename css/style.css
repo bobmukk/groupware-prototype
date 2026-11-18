@@ -697,3 +697,110 @@ body {
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
 .approver-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
 .approver-row:last-child { border-bottom: none; }
+
+/* 1) 로그인/회원가입 하단 안내 문구 한 줄 깔끔 정렬 */
+.login-notice {
+  font-size: 12px !important;
+  padding: 10px 8px !important;
+  letter-spacing: -0.4px;
+  word-break: keep-all;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* 2) 월간 그리드 휴가 캘린더 & 겹치는 휴가 자동 스태킹 바(Bar) UI */
+.cal-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.cal-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cal-month-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  min-width: 120px;
+  text-align: center;
+}
+.cal-grid-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+.cal-week-row {
+  position: relative;
+  border-left: 1px solid #cbd5e1;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+  background: #fff;
+  transition: min-height 0.15s ease;
+}
+.cal-week-row:last-child {
+  border-radius: 0 0 10px 10px;
+}
+.cal-day-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.cal-day-cell {
+  border-right: 1px solid #f1f5f9;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.cal-day-cell:last-child {
+  border-right: none;
+}
+.cal-day-cell.other-month {
+  background: #f8fafc;
+  color: #cbd5e1;
+}
+.cal-day-num {
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.cal-hol-label {
+  font-size: 10px;
+  color: #dc2626;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 75px;
+}
+.cal-events-layer {
+  position: relative;
+  padding-top: 28px;
+  padding-bottom: 6px;
+}
+.cal-event-bar {
+  position: absolute;
+  height: 22px;
+  line-height: 22px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  padding: 0 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  z-index: 2;
+}

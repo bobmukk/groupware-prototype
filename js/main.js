@@ -318,6 +318,40 @@ const App = {
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
     window.addEventListener("resize", () => { if (window.innerWidth > 768) setMenu(false); });
+
+    // 표(list-table)를 모바일 카드로 보여주기 위해 셀에 라벨을 자동 부여 (화면 갱신 때마다 실행)
+    const pageEl = document.getElementById("page-content");
+    if (pageEl && typeof MutationObserver !== "undefined") {
+      new MutationObserver(() => this.enhanceTables(pageEl)).observe(pageEl, { childList: true, subtree: true });
+      this.enhanceTables(pageEl);
+    }
+  },
+
+  // 대시보드 피드 표(feed-table)를 제외한 모든 표에 data-label 부여 + 셀 내용 래핑 (변경이 없으면 아무 작업도 하지 않음)
+  enhanceTables(root) {
+    root.querySelectorAll("table.list-table:not(.feed-table)").forEach(table => {
+      table.classList.add("stack-table");
+      const heads = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+      table.querySelectorAll("tbody tr").forEach(tr => {
+        let col = 0;
+        Array.from(tr.children).forEach(td => {
+          const span = Number(td.getAttribute("colspan") || 1);
+          if (span > 1) {
+            td.classList.add("td-wide");
+          } else {
+            if (heads[col] && !td.hasAttribute("data-label")) td.setAttribute("data-label", heads[col]);
+            const first = td.firstElementChild;
+            if (!(td.childNodes.length === 1 && first && first.classList.contains("td-val"))) {
+              const wrap = document.createElement("div");
+              wrap.className = "td-val";
+              while (td.firstChild) wrap.appendChild(td.firstChild);
+              td.appendChild(wrap);
+            }
+          }
+          col += span;
+        });
+      });
+    });
   },
 
   showLoginScreen() {
@@ -347,6 +381,16 @@ const App = {
     // 관리자(ADMIN)가 아니면 '관리자 전용' 메뉴 그룹을 아예 숨김
     const adminGroup = document.getElementById("nav-group-admin");
     if (adminGroup) adminGroup.classList.toggle("hidden", !Auth.isAdmin(user));
+
+    // 모바일 슬라이드 메뉴 상단 사용자 카드 (헤더에서 숨긴 이름/잔여 연차를 여기서 표시)
+    const drawerUser = document.getElementById("drawer-user");
+    if (drawerUser) {
+      drawerUser.innerHTML = `
+        <div class="du-name">${user.name} ${user.position}</div>
+        <div class="du-sub">${user.dept} · ${Auth.getRoleLabel(user.role)}</div>
+        <div class="du-leave">🌴 잔여 연차 <strong>${remain}일</strong> (총 ${total}일)</div>
+      `;
+    }
 
     const leaveBadge = document.getElementById("header-leave-badge");
     if (leaveBadge) {
@@ -729,6 +773,48 @@ const App = {
       `;
     }).join("");
 
+    // 모바일 전용: 달력 대신 '이달의 휴일 + 휴가자 목록'으로 보여주는 아젠다 뷰 (CSS로 PC/모바일 전환)
+    const dowNames = ["일", "월", "화", "수", "목", "금", "토"];
+    const fmtMD = (s) => {
+      const [yy, mm, dd] = s.split("-").map(Number);
+      return `${mm}/${dd}(${dowNames[new Date(yy, mm - 1, dd).getDay()]})`;
+    };
+    const monthStartStr = fmt(firstDay);
+    const monthEndStr = fmt(lastDay);
+    const monthLeaves = approvedLeaves
+      .filter(lv => lv.endDate >= monthStartStr && lv.startDate <= monthEndStr)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.days - a.days);
+    const monthHolidays = [];
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+      const ds = fmt(d);
+      const hn = this.getHolidayName(ds);
+      if (hn) monthHolidays.push({ ds, name: hn });
+    }
+    const agendaHtml = `
+      <div class="cal-agenda">
+        ${monthHolidays.length ? `
+          <div class="cal-agenda-hol">
+            ${monthHolidays.map(h => `<span class="cal-hol-chip">${fmtMD(h.ds)} ${h.name}</span>`).join("")}
+          </div>` : ""}
+        <div class="cal-agenda-title">🏖️ ${month}월 휴가자 (${monthLeaves.length}건)</div>
+        ${monthLeaves.length === 0
+          ? `<div class="cal-agenda-empty">이번 달 승인된 휴가가 없습니다.</div>`
+          : monthLeaves.map(lv => {
+              const onLeaveToday = lv.startDate <= todayStr && todayStr <= lv.endDate;
+              const period = lv.startDate === lv.endDate ? fmtMD(lv.startDate) : `${fmtMD(lv.startDate)} ~ ${fmtMD(lv.endDate)}`;
+              return `
+                <div class="cal-agenda-item" style="border-left-color:${getColorForUser(lv.applicantName)};">
+                  <div class="cal-agenda-top">
+                    <strong>${lv.applicantName} ${lv.position || ""}</strong>
+                    <span class="cal-agenda-dept">${lv.dept || ""}</span>
+                    ${onLeaveToday ? `<span class="status-badge status-APPROVED">오늘 휴가중</span>` : ""}
+                  </div>
+                  <div class="cal-agenda-sub">${lv.leaveType} · ${period} · 실차감 ${lv.days}일</div>
+                </div>`;
+            }).join("")}
+      </div>
+    `;
+
     return `
       <div class="cal-toolbar">
         <div class="cal-nav-group">
@@ -737,21 +823,24 @@ const App = {
           <button type="button" class="btn-logout" onclick="App.changeCalendarMonth(1)">다음 달 ▶</button>
           <button type="button" class="btn-logout" style="font-size:12px;" onclick="App.goCalendarToday()">오늘</button>
         </div>
-        <div style="font-size:12.5px; color:#64748b;">
+        <div class="cal-tip" style="font-size:12.5px; color:#64748b;">
           💡 같은 날짜에 여러 휴가자가 겹치면 <strong>달력 칸 높이가 자동 조절되며 줄이 위아래로 나란히 배치</strong>됩니다.
         </div>
       </div>
 
-      <div class="cal-grid-header">
-        <div style="color:#dc2626;">일</div>
-        <div>월</div>
-        <div>화</div>
-        <div>수</div>
-        <div>목</div>
-        <div>금</div>
-        <div style="color:#2563eb;">토</div>
+      <div class="cal-grid-wrap">
+        <div class="cal-grid-header">
+          <div style="color:#dc2626;">일</div>
+          <div>월</div>
+          <div>화</div>
+          <div>수</div>
+          <div>목</div>
+          <div>금</div>
+          <div style="color:#2563eb;">토</div>
+        </div>
+        <div>${weekRowsHtml}</div>
       </div>
-      <div>${weekRowsHtml}</div>
+      ${agendaHtml}
     `;
   },
 
@@ -771,11 +860,11 @@ const App = {
 
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%); border:1px solid #bfdbfe;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="summary-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <h4 style="color:#1e3a8a; margin:0;">🌴 ${user.name} ${user.position}님의 연차 현황 및 실시간 차감 계산</h4>
             <span style="font-size:12px; color:#1d4ed8; font-weight:600;">✔ 주말(토·일) 및 법정공휴일·대체공휴일 자동 제외</span>
           </div>
-          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; text-align:center;">
+          <div class="leave-summary-grid" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; text-align:center;">
             <div style="background:#fff; padding:12px; border-radius:10px; border:1px solid #e2e8f0;">
               <div style="font-size:12px; color:#64748b; margin-bottom:4px;">총 부여 연차</div>
               <strong style="font-size:20px; color:#0f172a;">${totalLeave}일</strong>
@@ -804,7 +893,7 @@ const App = {
             </button>
           </div>
 
-          <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
+          <div class="approver-line" style="background:#f8fafc; padding:12px 14px; border-radius:8px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
             <div style="font-size:13px; font-weight:600; color:#334155;">지정된 결재선 (1차 ➔ 최종):</div>
             <div id="selected-approvers-display" style="font-size:13px;">
               ${this.selectedApprover1 && this.selectedApprover2
@@ -813,7 +902,7 @@ const App = {
             </div>
           </div>
 
-          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:8px;">
+          <div class="form-grid-3" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:8px;">
             <div>
               <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">휴가 구분</label>
               <select id="ap-type" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;">
@@ -832,7 +921,7 @@ const App = {
               <input type="date" id="ap-end" value="${todayStr}" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
             </div>
           </div>
-          <div style="display:flex; gap:8px; margin-top:10px;">
+          <div class="form-row" style="display:flex; gap:8px; margin-top:10px;">
             <input type="text" id="ap-reason" placeholder="휴가 사유를 입력하세요 (본인과 결재자에게만 공개됩니다)" style="flex:1; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
             <button class="btn-primary" id="btn-submit-ap" style="${isEditing ? 'background:#d97706;' : ''}">
               ${isEditing ? "수정 완료 및 재상신" : "휴가 상신하기"}
@@ -1178,7 +1267,7 @@ const App = {
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
           <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${user.name} ${user.position})</h4></div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <div class="form-row" style="display:flex; gap:8px; margin-bottom:8px;">
             <select id="b-cat" style="padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
               <option value="자유 게시판">자유 게시판</option>
               <option value="업무 공유 게시판">업무 공유 게시판</option>
@@ -1247,7 +1336,7 @@ const App = {
         ${canEditNotice ? `
           <div class="card" style="margin-bottom:18px;">
             <div class="card-header"><h4>📢 신규 공지사항 등록 (관리자 전용)</h4></div>
-            <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+            <div class="form-row" style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
               <input id="n-title" type="text" placeholder="공지 제목을 입력하세요" style="flex:1; min-width:200px; padding:8px; border:1px solid #cbd5e1; border-radius:6px;" />
               <label style="display:flex; align-items:center; gap:4px; font-size:13px; font-weight:600; cursor:pointer;">
                 <input type="checkbox" id="n-pin" /> 중요 공지(상단고정)

@@ -227,6 +227,16 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
+  // [추가] 이미 취소됨(CANCELED) 상태인 휴가 신청서 목록에서 영구 삭제
+  async deleteLeaveRecord(docId) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/leave_requests?id=eq.${docId}`, {
+      method: "DELETE",
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error("취소된 문서 삭제에 실패했습니다.");
+    await this.syncFromCloud();
+  },
+
   async processLeaveApproval(doc, stepNumber, isApprove) {
     let updateFields = {};
     if (stepNumber === 1) {

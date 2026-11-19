@@ -199,6 +199,69 @@
     </div>
   </div>
 
+<!-- 5. 공지사항 및 게시판 상세 보기 / 관리자 전체 수정 모달 -->
+  <div id="post-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:580px;">
+      <div class="modal-header">
+        <h3 id="post-modal-header">📄 게시글 상세</h3>
+        <button type="button" class="modal-close" onclick="App.closePostModal()">✕</button>
+      </div>
+
+      <!-- 읽기(상세 보기) 영역 -->
+      <div id="post-view-area">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <span id="post-view-badge"></span>
+          <span id="post-view-meta" style="font-size:12px; color:#64748b;"></span>
+        </div>
+        <h4 id="post-view-title" style="font-size:17px; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;"></h4>
+        <div id="post-view-content" style="min-height:110px; max-height:300px; overflow-y:auto; white-space:pre-wrap; font-size:13.5px; color:#334155; line-height:1.65; margin-bottom:16px;"></div>
+        <div class="modal-footer" id="post-view-actions"></div>
+      </div>
+
+      <!-- 수정 영역 (관리자는 작성자명까지 모든 항목 수정 가능) -->
+      <div id="post-edit-area" class="hidden">
+        <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
+          <div id="post-edit-cat-wrap" style="flex:1;">
+            <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">카테고리</label>
+            <select id="post-edit-cat" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+              <option value="자유 게시판">자유 게시판</option>
+              <option value="업무 공유 게시판">업무 공유 게시판</option>
+              <option value="부서별 게시판">부서별 게시판</option>
+            </select>
+          </div>
+          <div id="post-edit-pin-wrap" style="display:flex; align-items:center; gap:6px; padding-top:16px;">
+            <label style="font-size:13px; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="post-edit-pin" /> 중요 공지(상단고정)
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">제목</label>
+          <input type="text" id="post-edit-title" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">작성자명</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="post-edit-author" style="flex:1; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+            <button type="button" id="btn-set-my-author" class="btn-logout" style="white-space:nowrap; color:#2563eb; border-color:#bfdbfe;" onclick="App.fillMyAuthorName()">내 이름으로 변경</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">상세 내용</label>
+          <textarea id="post-edit-content" rows="5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-logout" onclick="App.closePostModal()">취소</button>
+          <button type="button" class="btn-primary" onclick="App.savePostEdit()">수정 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container" class="toast-container"></div>
 
   <script src="js/data.js"></script>

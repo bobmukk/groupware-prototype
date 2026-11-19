@@ -844,6 +844,9 @@ const App = {
                             ${doc.status === "APPROVED" ? "🔄 휴가취소(연차복구)" : "🗑️ 상신취소"}
                           </button>
                         ` : ""}
+                        ${doc.status === "CANCELED" && (isMyDoc || Auth.isAdmin(user)) ? `
+                          <button class="btn-logout" title="취소된 신청서 삭제" style="padding:4px 9px; font-size:12px; font-weight:700; color:#64748b; border-color:#cbd5e1;" onclick="App.handleDeleteCanceledLeave('${doc.id}')">✕</button>
+                        ` : ""}
                       </div>
                     </td>
                   </tr>
@@ -1134,8 +1137,9 @@ const App = {
       return;
     }
 
-    // 5. 사내 게시판
+    // 5. 사내 게시판 (클릭 상세보기 + 관리자 전체 수정/삭제)
     if (pageKey === "board") {
+      const isAdmin = Auth.isAdmin(user);
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
           <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${user.name} ${user.position})</h4></div>
@@ -1151,19 +1155,31 @@ const App = {
           <textarea id="b-content" rows="2" placeholder="내용을 입력하세요" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
         </div>
         <div class="card">
-          <div class="card-header"><h4>💬 전체 게시글 목록 (${(db.boardPosts || []).length}건)</h4></div>
+          <div class="card-header"><h4>💬 전체 게시글 목록 (${(db.boardPosts || []).length}건) · 제목을 클릭하면 상세 내용을 볼 수 있습니다</h4></div>
           <table class="list-table">
             <thead><tr><th>분류</th><th>제목 / 내용</th><th>작성자</th><th>작성일</th><th>관리</th></tr></thead>
             <tbody>
-              ${(db.boardPosts || []).map((b, idx) => `
-                <tr>
-                  <td><span class="status-badge status-IN_PROGRESS">${b.category}</span></td>
-                  <td><strong>${b.title}</strong><br/><span style="color:#64748b; font-size:12px;">${b.content || ""}</span></td>
-                  <td>${b.author}</td>
-                  <td>${b.date}</td>
-                  <td>${b.author.includes(user.name) ? `<button class="link-btn" onclick="App.deleteBoard(${idx})">삭제</button>` : "-"}</td>
-                </tr>
-              `).join("")}
+              ${(db.boardPosts || []).length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">등록된 게시글이 없습니다.</td></tr>` : ""}
+              ${(db.boardPosts || []).map((b, idx) => {
+                const canManage = isAdmin || (b.author || "").includes(user.name);
+                return `
+                  <tr>
+                    <td><span class="status-badge status-IN_PROGRESS">${b.category}</span></td>
+                    <td style="cursor:pointer;" onclick="App.openPostModal('board', ${idx}, false)">
+                      <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${b.title}</strong><br/>
+                      <span style="color:#64748b; font-size:12px;">${(b.content || "").slice(0, 60)}${(b.content || "").length > 60 ? "..." : ""}</span>
+                    </td>
+                    <td>${b.author}</td>
+                    <td>${b.date}</td>
+                    <td>
+                      ${canManage ? `
+                        <button class="link-btn" style="margin-right:8px;" onclick="App.openPostModal('board', ${idx}, true)">수정</button>
+                        <button class="link-btn" style="color:#dc2626;" onclick="App.deletePost('board', ${idx})">삭제</button>
+                      ` : "-"}
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
             </tbody>
           </table>
         </div>
@@ -1189,8 +1205,9 @@ const App = {
       return;
     }
 
-    // 6. 회사 공지사항
+    // 6. 회사 공지사항 (클릭 상세보기 + 관리자 전체 수정/삭제)
     if (pageKey === "notice") {
+      const isAdmin = Auth.isAdmin(user);
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
           <div class="card-header"><h4>📢 신규 공지사항 등록</h4></div>
@@ -1202,17 +1219,31 @@ const App = {
           <textarea id="n-content" rows="2" placeholder="공지 상세 내용" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
         </div>
         <div class="card">
+          <div class="card-header"><h4>📌 공지사항 목록 (${(db.notices || []).length}건) · 제목을 클릭하면 상세 내용을 볼 수 있습니다</h4></div>
           <table class="list-table">
-            <thead><tr><th>구분</th><th>제목 / 내용</th><th>작성자</th><th>작성일</th></tr></thead>
+            <thead><tr><th>구분</th><th>제목 / 내용</th><th>작성자</th><th>작성일</th><th>관리</th></tr></thead>
             <tbody>
-              ${(db.notices || []).map(n => `
-                <tr>
-                  <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '일반'}</td>
-                  <td><strong>${n.title}</strong><br/><span style="color:#64748b; font-size:12px;">${n.content}</span></td>
-                  <td>${n.author}</td>
-                  <td>${n.date}</td>
-                </tr>
-              `).join("")}
+              ${(db.notices || []).length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>` : ""}
+              ${(db.notices || []).map((n, idx) => {
+                const canManage = isAdmin || (n.author || "").includes(user.name);
+                return `
+                  <tr>
+                    <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
+                    <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
+                      <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
+                      <span style="color:#64748b; font-size:12px;">${(n.content || "").slice(0, 60)}${(n.content || "").length > 60 ? "..." : ""}</span>
+                    </td>
+                    <td>${n.author}</td>
+                    <td>${n.date}</td>
+                    <td>
+                      ${canManage ? `
+                        <button class="link-btn" style="margin-right:8px;" onclick="App.openPostModal('notice', ${idx}, true)">수정</button>
+                        <button class="link-btn" style="color:#dc2626;" onclick="App.deletePost('notice', ${idx})">삭제</button>
+                      ` : "-"}
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
             </tbody>
           </table>
         </div>
@@ -1308,12 +1339,130 @@ const App = {
     }
   },
 
-  deleteBoard(idx) {
+  // 취소된 휴가 신청서(CANCELED) '✕' 버튼 클릭 시 영구 삭제
+  async handleDeleteCanceledLeave(docId) {
+    if (!confirm("취소된 휴가 내역을 목록에서 완전히 삭제하시겠습니까?")) return;
+    try {
+      await StorageDB.deleteLeaveRecord(docId);
+      this.showToast("취소된 신청서가 목록에서 삭제되었습니다.");
+      this.navigateTo("approval");
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  // 공지사항 / 게시판 상세 보기 및 수정 모달 열기
+  openPostModal(type, idx, startInEditMode = false) {
     const db = StorageDB.getData();
-    db.boardPosts.splice(idx, 1);
+    const user = Auth.getCurrentUser();
+    const list = type === "notice" ? (db.notices || []) : (db.boardPosts || []);
+    const item = list[idx];
+    if (!item) return;
+
+    this.activePostTarget = { type, idx };
+    const isAdmin = Auth.isAdmin(user);
+    const canManage = isAdmin || (item.author || "").includes(user.name);
+
+    const viewArea = document.getElementById("post-view-area");
+    const editArea = document.getElementById("post-edit-area");
+    const headerEl = document.getElementById("post-modal-header");
+
+    if (startInEditMode && canManage) {
+      headerEl.textContent = type === "notice" ? "✏️ 공지사항 수정" : "✏️ 게시글 수정";
+      viewArea.classList.add("hidden");
+      editArea.classList.remove("hidden");
+
+      document.getElementById("post-edit-cat-wrap").classList.toggle("hidden", type === "notice");
+      document.getElementById("post-edit-pin-wrap").classList.toggle("hidden", type !== "notice");
+
+      if (type === "notice") {
+        document.getElementById("post-edit-pin").checked = Boolean(item.pinned);
+      } else {
+        document.getElementById("post-edit-cat").value = item.category || "자유 게시판";
+      }
+
+      document.getElementById("post-edit-title").value = item.title || "";
+      document.getElementById("post-edit-content").value = item.content || "";
+
+      const authorInput = document.getElementById("post-edit-author");
+      authorInput.value = item.author || "";
+      // 관리자는 작성자명을 자유롭게 수정 가능, 일반 직원은 본인 이름 고정
+      authorInput.disabled = !isAdmin;
+      document.getElementById("btn-set-my-author").classList.toggle("hidden", !isAdmin);
+    } else {
+      headerEl.textContent = type === "notice" ? "📢 공지사항 상세" : "💬 게시글 상세";
+      editArea.classList.add("hidden");
+      viewArea.classList.remove("hidden");
+
+      document.getElementById("post-view-badge").innerHTML = type === "notice"
+        ? (item.pinned ? '<span class="status-badge status-REJECTED">중요 공지</span>' : '<span class="status-badge status-IN_PROGRESS">일반 공지</span>')
+        : `<span class="status-badge status-IN_PROGRESS">${item.category || "게시판"}</span>`;
+
+      document.getElementById("post-view-meta").textContent = `작성자: ${item.author || "-"} · 작성일: ${item.date || "-"}`;
+      document.getElementById("post-view-title").textContent = item.title || "";
+      document.getElementById("post-view-content").textContent = item.content || "(내용 없음)";
+
+      document.getElementById("post-view-actions").innerHTML = `
+        ${canManage ? `
+          <button type="button" class="btn-primary" onclick="App.openPostModal('${type}', ${idx}, true)">✏️ 수정하기</button>
+          <button type="button" class="btn-logout" style="color:#dc2626; border-color:#fecaca;" onclick="App.deletePost('${type}', ${idx})">🗑️ 삭제</button>
+        ` : ""}
+        <button type="button" class="btn-logout" onclick="App.closePostModal()">닫기</button>
+      `;
+    }
+
+    document.getElementById("post-modal").classList.remove("hidden");
+  },
+
+  fillMyAuthorName() {
+    const user = Auth.getCurrentUser();
+    if (!user) return;
+    document.getElementById("post-edit-author").value = `${user.name} ${user.position}`;
+  },
+
+  savePostEdit() {
+    if (!this.activePostTarget) return;
+    const { type, idx } = this.activePostTarget;
+    const db = StorageDB.getData();
+    const list = type === "notice" ? db.notices : db.boardPosts;
+    if (!list || !list[idx]) return;
+
+    const title = document.getElementById("post-edit-title").value.trim();
+    const author = document.getElementById("post-edit-author").value.trim();
+    const content = document.getElementById("post-edit-content").value.trim();
+    if (!title) return alert("제목을 입력해 주세요.");
+
+    list[idx].title = title;
+    list[idx].author = author || list[idx].author;
+    list[idx].content = content;
+    if (type === "notice") {
+      list[idx].pinned = document.getElementById("post-edit-pin").checked;
+    } else {
+      list[idx].category = document.getElementById("post-edit-cat").value;
+    }
+
     StorageDB.saveData(db);
-    this.showToast("게시글이 삭제되었습니다.");
-    this.navigateTo("board");
+    this.closePostModal();
+    this.showToast("수정 사항이 Supabase에 저장되었습니다.");
+    this.navigateTo(type);
+  },
+
+  deletePost(type, idx) {
+    if (!confirm("이 글을 정말 삭제하시겠습니까?")) return;
+    const db = StorageDB.getData();
+    const list = type === "notice" ? db.notices : db.boardPosts;
+    if (!list || !list[idx]) return;
+
+    list.splice(idx, 1);
+    StorageDB.saveData(db);
+    this.closePostModal();
+    this.showToast("삭제되었습니다.");
+    this.navigateTo(type);
+  },
+
+  closePostModal() {
+    this.activePostTarget = null;
+    document.getElementById("post-modal").classList.add("hidden");
   },
 
   showToast(msg) {

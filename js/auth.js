@@ -1,19 +1,101 @@
 /**
- * js/auth.js (1단계: 탭 종료 및 링크 재접속 시 자동 로그아웃되는 sessionStorage 적용)
+ * js/auth.js (아이디 저장 + 로그인 유지(refresh_token 자동갱신) + 모바일 안전 폴백)
  */
 const TOKEN_KEY = "gw_supabase_access_token";
+const REFRESH_KEY = "gw_supabase_refresh_token";
+const EXPIRES_KEY = "gw_supabase_token_expires";
 const USER_PROFILE_KEY = "gw_supabase_user_profile";
+const SAVED_EMAIL_KEY = "gw_saved_login_email";
+const KEEP_LOGIN_KEY = "gw_keep_login_flag";
 
-// 👇 회원님(마스터 관리자)의 이메일 주소를 유지하세요!
+// 👇 회원님(마스터 관리자)의 이메일 주소를 그대로 입력하세요!
 const MASTER_ADMIN_EMAIL = "dyswn123@naver.com";
 
-// 기존 localStorage에 남아있던 영구 로그인 흔적 자동 청소
-localStorage.removeItem(TOKEN_KEY);
-localStorage.removeItem(USER_PROFILE_KEY);
+// 로그인 유지 여부에 따라 localStorage / sessionStorage 자동 선택 + 모바일 메모리 폴백
+const SafeAuthStore = {
+  _mem: {},
+  isPersistent() {
+    try { return window.localStorage.getItem(KEEP_LOGIN_KEY) === "1"; } catch (e) { return false; }
+  },
+  setPersistent(flag) {
+    try {
+      if (flag) window.localStorage.setItem(KEEP_LOGIN_KEY, "1");
+      else window.localStorage.removeItem(KEEP_LOGIN_KEY);
+    } catch (e) {}
+  },
+  get(key) {
+    try {
+      const s = window.sessionStorage.getItem(key);
+      if (s !== null) return s;
+    } catch (e) {}
+    try {
+      const l = window.localStorage.getItem(key);
+      if (l !== null) return l;
+    } catch (e) {}
+    return this._mem[key] ?? null;
+  },
+  set(key, val, persistent = false) {
+    this._mem[key] = val;
+    try { window.sessionStorage.setItem(key, val); } catch (e) {}
+    try {
+      if (persistent) window.localStorage.setItem(key, val);
+      else window.localStorage.removeItem(key);
+    } catch (e) {}
+  },
+  remove(key) {
+    delete this._mem[key];
+    try { window.sessionStorage.removeItem(key); } catch (e) {}
+    try { window.localStorage.removeItem(key); } catch (e) {}
+  }
+};
 
 const Auth = {
   getToken() {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return SafeAuthStore.get(TOKEN_KEY);
+  },
+
+  // 아이디(이메일) 저장 읽기/쓰기
+  getSavedEmail() {
+    try { return window.localStorage.getItem(SAVED_EMAIL_KEY) || ""; } catch (e) { return ""; }
+  },
+  setSavedEmail(email, shouldSave) {
+    try {
+      if (shouldSave && email) window.localStorage.setItem(SAVED_EMAIL_KEY, email.trim());
+      else window.localStorage.removeItem(SAVED_EMAIL_KEY);
+    } catch (e) {}
+  },
+
+  // 로그인 유지 상태일 때 만료된 access_token을 refresh_token으로 자동 연장
+  async refreshSessionIfNeeded() {
+    const token = this.getToken();
+    const refreshToken = SafeAuthStore.get(REFRESH_KEY);
+    const expiresAt = Number(SafeAuthStore.get(EXPIRES_KEY) || 0);
+    if (!token && !refreshToken) return false;
+
+    // 만료 2분 전이 아니면 기존 토큰 그대로 사용
+    if (token && expiresAt && Date.now() < expiresAt - 120000) return true;
+    if (!refreshToken) return Boolean(token);
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken })
+      });
+      if (!res.ok) {
+        this.logout();
+        return false;
+      }
+      const data = await res.json();
+      const persistent = SafeAuthStore.isPersistent();
+      const nextExpires = Date.now() + Number(data.expires_in || 3600) * 1000;
+      SafeAuthStore.set(TOKEN_KEY, data.access_token, persistent);
+      if (data.refresh_token) SafeAuthStore.set(REFRESH_KEY, data.refresh_token, persistent);
+      SafeAuthStore.set(EXPIRES_KEY, String(nextExpires), persistent);
+      return true;
+    } catch (e) {
+      return Boolean(token);
+    }
   },
 
   async signup(email, password, name, position, dept) {
@@ -65,16 +147,17 @@ const Auth = {
         };
       }
 
-      sessionStorage.setItem(TOKEN_KEY, token);
+      SafeAuthStore.setPersistent(false);
+      SafeAuthStore.set(TOKEN_KEY, token, false);
       const appUser = this.mapProfileToUser(profileRow);
-      sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      SafeAuthStore.set(USER_PROFILE_KEY, JSON.stringify(appUser), false);
       return { success: true, pending: false, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
     }
   },
 
-  async login(email, password) {
+  async login(email, password, keepLogin = false) {
     try {
       const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
         method: "POST",
@@ -85,6 +168,8 @@ const Auth = {
       if (!res.ok) throw new Error("이메일 또는 비밀번호가 올바르지 않습니다.");
 
       const token = data.access_token;
+      const refreshToken = data.refresh_token || "";
+      const expiresAt = Date.now() + Number(data.expires_in || 3600) * 1000;
       const userId = data.user.id;
 
       const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=*`, {
@@ -116,9 +201,13 @@ const Auth = {
         throw new Error("⛔ 가입이 반려되었거나 사용이 중지된 계정입니다.");
       }
 
-      sessionStorage.setItem(TOKEN_KEY, token);
+      SafeAuthStore.setPersistent(keepLogin);
+      SafeAuthStore.set(TOKEN_KEY, token, keepLogin);
+      if (refreshToken) SafeAuthStore.set(REFRESH_KEY, refreshToken, keepLogin);
+      SafeAuthStore.set(EXPIRES_KEY, String(expiresAt), keepLogin);
+
       const appUser = this.mapProfileToUser(profileRow);
-      sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      SafeAuthStore.set(USER_PROFILE_KEY, JSON.stringify(appUser), keepLogin);
       return { success: true, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
@@ -141,20 +230,21 @@ const Auth = {
   },
 
   logout() {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_PROFILE_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_PROFILE_KEY);
+    SafeAuthStore.setPersistent(false);
+    SafeAuthStore.remove(TOKEN_KEY);
+    SafeAuthStore.remove(REFRESH_KEY);
+    SafeAuthStore.remove(EXPIRES_KEY);
+    SafeAuthStore.remove(USER_PROFILE_KEY);
   },
 
   getCurrentUser() {
-    const raw = sessionStorage.getItem(USER_PROFILE_KEY);
+    const raw = SafeAuthStore.get(USER_PROFILE_KEY);
     if (!raw) return null;
     try { return JSON.parse(raw); } catch (e) { return null; }
   },
 
   saveCurrentUser(userObj) {
-    sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userObj));
+    SafeAuthStore.set(USER_PROFILE_KEY, JSON.stringify(userObj), SafeAuthStore.isPersistent());
   },
 
   getRoleLabel(role) {
@@ -162,7 +252,8 @@ const Auth = {
     return map[role] || "일반 직원";
   },
 
+  // 시스템 관리자(ADMIN) 전용. 대표(CEO) 등 다른 권한은 관리자 기능에서 제외됨.
   isAdmin(user) {
-    return user && (user.role === "ADMIN" || user.role === "CEO");
+    return !!user && user.role === "ADMIN";
   }
 };

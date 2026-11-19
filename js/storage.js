@@ -246,6 +246,7 @@ const StorageDB = {
   },
 
   async processLeaveApproval(doc, stepNumber, isApprove) {
+    let deductFailed = false;
     let updateFields = {};
     if (stepNumber === 1) {
       updateFields = isApprove
@@ -281,11 +282,16 @@ const StorageDB = {
           const rows = await profRes.json();
           const currentUsed = Number(rows?.[0]?.annual_used || 0);
           const nextUsed = Number((currentUsed + Number(doc.days)).toFixed(1));
-          await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${doc.applicantId}`, {
+          const upRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${doc.applicantId}`, {
             method: "PATCH",
-            headers: this.getHeaders(true),
+            headers: { ...this.getHeaders(true), "Prefer": "return=representation" },
             body: JSON.stringify({ annual_used: nextUsed })
           });
+          // RLS 등으로 다른 직원의 연차 갱신이 막히면 오류 없이 0건 수정될 수 있으므로 반드시 확인
+          const upRows = upRes.ok ? await upRes.json().catch(() => []) : [];
+          if (!upRes.ok || !Array.isArray(upRows) || upRows.length === 0) {
+            deductFailed = true;
+          }
         }
       }
 
@@ -301,6 +307,9 @@ const StorageDB = {
     }
 
     await this.syncFromCloud();
+    if (deductFailed) {
+      throw new Error("최종 승인은 처리되었으나 신청자의 연차 차감에 실패했습니다. 시스템 관리자에게 연차 수동 조정을 요청해 주세요.");
+    }
   },
 
   async bulkUpdateAnnualLeave(totalDays, resetUsed = false) {
@@ -360,6 +369,17 @@ const StorageDB = {
   async markAllNotificationsRead(userId) {
     if (!userId) return;
     await fetch(`${SUPABASE_URL}/rest/v1/notifications?receiver_id=eq.${userId}&is_read=eq.false`, {
+      method: "PATCH",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ is_read: true })
+    });
+    await this.syncFromCloud();
+  },
+
+  // ✅ 알림 1건 클릭 시 개별 읽음 처리
+  async markNotificationRead(notifId) {
+    if (!notifId) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/notifications?id=eq.${notifId}`, {
       method: "PATCH",
       headers: this.getHeaders(true),
       body: JSON.stringify({ is_read: true })

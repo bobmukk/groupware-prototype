@@ -52,7 +52,7 @@ const App = {
   calMonth: new Date().getMonth() + 1,
   loadedYears: new Set(),
 
- init() {
+ async init() {
     // 이벤트 바인딩을 최우선으로 수행 (이후 단계에서 오류가 나도 로그인 폼이 새로고침되지 않도록)
     this.bindGlobalEvents();
 
@@ -72,6 +72,17 @@ const App = {
       const targetPage = (e.state && e.state.page) ? e.state.page : (location.hash.replace("#", "") || "dashboard");
       this.navigateTo(targetPage, false);
     });
+
+    // ✅ 저장된 아이디(이메일) 자동 입력
+    const savedEmail = Auth.getSavedEmail();
+    const emailInput = document.getElementById("login-email");
+    const saveEmailChk = document.getElementById("chk-save-email");
+    if (savedEmail && emailInput) {
+      emailInput.value = savedEmail;
+      if (saveEmailChk) saveEmailChk.checked = true;
+    }
+    // ✅ 로그인 유지 사용 시 만료된 토큰 자동 갱신
+    await Auth.refreshSessionIfNeeded();
 
     // 로그인 정보는 sessionStorage에만 저장되므로 탭/브라우저 종료 시 자동 로그아웃됨.
     // 해시(#)가 없어도(모바일 인앱 브라우저가 해시를 제거하는 경우 등) 세션이 살아있으면 로그인 유지.
@@ -167,7 +178,10 @@ const App = {
 
       try {
         if (submitBtn) submitBtn.textContent = "로그인 중...";
-        const res = await Auth.login(email, pw);
+        const saveEmail = document.getElementById("chk-save-email")?.checked || false;
+        const keepLogin = document.getElementById("chk-keep-login")?.checked || false;
+        Auth.setSavedEmail(email, saveEmail);
+        const res = await Auth.login(email, pw, keepLogin);
         if (submitBtn) submitBtn.textContent = "로그인하기";
 
         if (!res.success) {
@@ -287,6 +301,23 @@ const App = {
     if (saveProfBtn) {
       saveProfBtn.addEventListener("click", () => this.saveMyProfileChanges());
     }
+
+    // 모바일 슬라이드 메뉴 (햄버거 / 배경 터치 / 메뉴 선택 / ESC / 화면 확대 시 자동 닫힘)
+    const sidebarEl = document.querySelector(".sidebar");
+    const backdropEl = document.getElementById("sidebar-backdrop");
+    const menuBtn = document.getElementById("btn-menu-toggle");
+    const setMenu = (open) => {
+      if (sidebarEl) sidebarEl.classList.toggle("open", open);
+      if (backdropEl) backdropEl.classList.toggle("show", open);
+      document.body.classList.toggle("menu-open", open);
+    };
+    if (menuBtn) menuBtn.addEventListener("click", () => setMenu(!(sidebarEl && sidebarEl.classList.contains("open"))));
+    if (backdropEl) backdropEl.addEventListener("click", () => setMenu(false));
+    if (sidebarEl) sidebarEl.addEventListener("click", (e) => {
+      if (e.target.closest(".nav-item, .sidebar-brand")) setMenu(false);
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
+    window.addEventListener("resize", () => { if (window.innerWidth > 768) setMenu(false); });
   },
 
   showLoginScreen() {
@@ -312,6 +343,10 @@ const App = {
     document.getElementById("user-avatar").textContent = (user.name || "사").charAt(0);
     document.getElementById("user-name-display").textContent = `${user.name} ${user.position}`;
     document.getElementById("user-dept-display").textContent = `${user.dept} · ${Auth.getRoleLabel(user.role)}`;
+
+    // 관리자(ADMIN)가 아니면 '관리자 전용' 메뉴 그룹을 아예 숨김
+    const adminGroup = document.getElementById("nav-group-admin");
+    if (adminGroup) adminGroup.classList.toggle("hidden", !Auth.isAdmin(user));
 
     const leaveBadge = document.getElementById("header-leave-badge");
     if (leaveBadge) {
@@ -397,7 +432,7 @@ const App = {
     }
 
     listEl.innerHTML = notifs.map(n => `
-      <div class="notif-item ${n.is_read ? '' : 'unread'}">
+      <div class="notif-item ${n.is_read ? "" : "unread"}" style="cursor:pointer;" onclick="App.handleNotificationClick('${n.id}')">
         <div>${n.message}</div>
         <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${(n.created_at || "").slice(0, 16).replace("T", " ")}</div>
       </div>
@@ -991,7 +1026,7 @@ const App = {
     // 3. 관리자 전용 페이지
     if (pageKey === "admin") {
       if (!Auth.isAdmin(user)) {
-        container.innerHTML = `<div class="card"><h3>⛔ 시스템 관리자(또는 대표이사)만 접근할 수 있는 메뉴입니다.</h3></div>`;
+        container.innerHTML = `<div class="card"><h3>⛔ 시스템 관리자만 접근할 수 있는 메뉴입니다.</h3></div>`;
         return;
       }
 
@@ -1477,6 +1512,33 @@ const App = {
   closePostModal() {
     this.activePostTarget = null;
     document.getElementById("post-modal").classList.add("hidden");
+  },
+
+  getNotificationTargetPage(message = "") {
+    if (message.includes("가입")) return "admin";
+    if (message.includes("캘린더") || message.includes("최종 승인 완료")) return "leave-calendar";
+    if (message.includes("결재") || message.includes("휴가") || message.includes("연차") || message.includes("반려") || message.includes("취소")) return "approval";
+    if (message.includes("공지")) return "notice";
+    if (message.includes("게시판") || message.includes("게시글")) return "board";
+    return "dashboard";
+  },
+
+  async handleNotificationClick(notifId) {
+    const db = StorageDB.getData();
+    const target = (db.notifications || []).find((n) => String(n.id) === String(notifId));
+    const targetPage = this.getNotificationTargetPage(target ? target.message : "");
+
+    const dropdown = document.getElementById("notif-dropdown") || document.getElementById("notification-dropdown");
+    if (dropdown) dropdown.classList.add("hidden");
+
+    if (target && !target.is_read && typeof StorageDB.markNotificationRead === "function") {
+      try {
+        await StorageDB.markNotificationRead(notifId);
+        this.renderNotificationDropdown();
+      } catch (e) {}
+    }
+
+    this.navigateTo(targetPage);
   },
 
   showToast(msg) {

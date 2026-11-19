@@ -79,19 +79,19 @@ const DashboardModule = {
             <h4>📝 최근 휴가 및 결재 현황</h4>
             <button type="button" class="link-btn" onclick="App.navigateTo('approval')">전체보기 ➔</button>
           </div>
-          <table class="list-table">
+          <table class="list-table feed-table">
             <thead>
               <tr><th>신청자</th><th>구분 / 일수</th><th>기간</th><th>상태</th></tr>
             </thead>
             <tbody>
               ${recentLeaves.length === 0
-                ? `<tr><td colspan="4" style="text-align:center; padding:18px; color:#94a3b8;">최근 결재 내역이 없습니다.</td></tr>`
+                ? `<tr><td colspan="4" class="f-empty" style="text-align:center; padding:18px; color:#94a3b8;">최근 결재 내역이 없습니다.</td></tr>`
                 : recentLeaves.map(doc => `
                   <tr style="cursor:pointer;" onclick="App.navigateTo('approval')">
-                    <td><strong>${doc.applicantName}</strong></td>
-                    <td>${doc.leaveType} (${doc.days}일)</td>
-                    <td style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</td>
-                    <td><span class="status-badge status-${doc.status}">${App.getLeaveStatusLabel(doc.status)}</span></td>
+                    <td class="f-name"><strong>${doc.applicantName}</strong></td>
+                    <td class="f-type">${doc.leaveType} (${doc.days}일)</td>
+                    <td class="f-period" style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</td>
+                    <td class="f-status"><span class="status-badge status-${doc.status}">${App.getLeaveStatusLabel(doc.status)}</span></td>
                   </tr>
                 `).join("")
               }
@@ -104,19 +104,19 @@ const DashboardModule = {
             <h4>📢 최근 회사 공지사항</h4>
             <button type="button" class="link-btn" onclick="App.navigateTo('notice')">전체보기 ➔</button>
           </div>
-          <table class="list-table">
+          <table class="list-table feed-table">
             <thead>
               <tr><th>구분</th><th>제목</th><th>작성자</th><th>작성일</th></tr>
             </thead>
             <tbody>
               ${recentNotices.length === 0
-                ? `<tr><td colspan="4" style="text-align:center; padding:18px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>`
+                ? `<tr><td colspan="4" class="f-empty" style="text-align:center; padding:18px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>`
                 : recentNotices.map(n => `
                   <tr style="cursor:pointer;" onclick="App.navigateTo('notice')">
-                    <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">공지</span>'}</td>
-                    <td><strong>${n.title}</strong></td>
-                    <td>${n.author}</td>
-                    <td style="font-size:12px; color:#64748b;">${n.date}</td>
+                    <td class="f-badge">${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">공지</span>'}</td>
+                    <td class="f-title"><strong>${n.title}</strong></td>
+                    <td class="f-author">${n.author}</td>
+                    <td class="f-date" style="font-size:12px; color:#64748b;">${n.date}</td>
                   </tr>
                 `).join("")
               }

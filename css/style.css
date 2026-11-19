@@ -852,58 +852,14 @@ body {
     flex-direction: column;
   }
 
-  /* 모바일에서는 좌측 고정 사이드바를 상단 메뉴 바로 전환 */
-  .sidebar {
-    position: relative;
-    width: 100%;
-    height: auto;
-  }
-
-  .sidebar-nav {
-    display: flex;
-    overflow-x: auto;
-    padding: 8px 10px;
-    gap: 8px;
-  }
-
-  .nav-group {
-    display: flex;
-    margin-bottom: 0;
-    gap: 6px;
-  }
-
-  .nav-group-title {
-    display: none;
-  }
-
-  .nav-item {
-    white-space: nowrap;
-    padding: 8px 12px;
-    font-size: 12.5px;
-  }
+  /* 모바일: 사이드바는 슬라이드 메뉴로 동작 (아래 6번 섹션 참고) */
 
   .main-wrapper {
     margin-left: 0;
     width: 100%;
   }
 
-  .top-header {
-    height: auto;
-    padding: 10px 14px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .header-right {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .page-content {
-    padding: 14px;
-  }
+  /* 상단 헤더 / 콘텐츠 여백 등은 아래 6번 섹션에서 정의 */
 
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -915,5 +871,232 @@ body {
     align-items: flex-start;
     gap: 12px;
     padding: 16px;
+  }
+}
+
+
+/* =========================================================
+   6. 모바일 UX 개선 (슬라이드 메뉴 / 피드형 대시보드 / 터치·가독성 최적화)
+   - 데스크톱 화면에는 영향 없음 (모바일 전용 규칙은 @media 안에서만 적용)
+========================================================= */
+.menu-toggle { display: none; }
+.sidebar-backdrop { display: none; }
+
+/* 체크박스가 .login-form input { width:100% } 에 영향받지 않도록 */
+.login-form input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  body { font-size: 15px; }
+  body.menu-open { overflow: hidden; }
+
+  /* iOS Safari는 입력창 글자가 16px 미만이면 포커스 시 화면을 자동 확대함 → 방지 */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* ---------- 로그인 ---------- */
+  .login-overlay {
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 14px;
+  }
+  .login-form input:not([type="checkbox"]) { padding: 12px; }
+  #signup-form > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .auth-tab-btn,
+  .btn-primary,
+  .btn-white { min-height: 44px; }
+
+  /* ---------- 슬라이드 메뉴(사이드바) ---------- */
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sidebar {
+    width: min(280px, 82vw);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 1100;
+  }
+  .sidebar.open {
+    transform: none;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.45);
+  }
+  .sidebar-nav { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .sidebar .nav-item {
+    min-height: 46px;
+    padding: 12px;
+    font-size: 15px;
+  }
+  .nav-group-title { font-size: 12px; }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 1050;
+  }
+  .sidebar-backdrop.show { display: block; }
+
+  /* ---------- 상단 헤더 (한 줄로 슬림하게) ---------- */
+  .top-header {
+    height: 56px;
+    padding: 0 10px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .header-left { flex: 1; min-width: 0; gap: 8px; }
+  .header-left h2 {
+    font-size: 16px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sim-badge { display: none; }
+  .header-right { width: auto; flex: none; flex-wrap: nowrap; gap: 6px; }
+  .notif-btn { padding: 6px 10px; min-height: 36px; font-size: 13px; }
+  .user-meta,
+  #header-leave-badge { display: none !important; }
+  #btn-open-profile {
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+  }
+  .user-avatar { width: 36px; height: 36px; }
+  .top-header .btn-logout { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+
+  /* 알림창: 화면 폭에 맞춰 고정 표시 (좁은 폰에서 잘림 방지) */
+  .notif-dropdown {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    top: 62px;
+    width: auto;
+  }
+  .notif-list { max-height: 60vh; }
+  .notif-item { font-size: 14px; padding: 14px; }
+
+  /* ---------- 공통 콘텐츠 ---------- */
+  .page-content {
+    padding: 12px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+  .card { padding: 14px; }
+  .card-header h4 { font-size: 16px; }
+  .link-btn { font-size: 13px; min-height: 36px; padding: 0 4px; }
+  .list-table th { font-size: 13px; }
+  .list-table td { font-size: 14px; }
+  .status-badge { font-size: 12px; padding: 3px 9px; }
+  /* 열이 많은 일반 표는 찌그러뜨리지 않고 카드 안에서 좌우 스크롤 */
+  .list-table:not(.feed-table) { min-width: 600px; }
+  .list-table .btn-primary,
+  .list-table .btn-logout {
+    min-height: 38px;
+    padding: 6px 12px !important;
+    font-size: 13px !important;
+  }
+
+  /* ---------- 대시보드 ---------- */
+  .welcome-banner h3 { font-size: 17px; }
+  .banner-actions { width: 100%; gap: 8px; }
+  .banner-actions .btn-white {
+    flex: 1;
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+  .kpi-card {
+    padding: 14px;
+    min-height: 96px;
+    display: flex;
+    flex-direction: column;
+  }
+  .kpi-label { font-size: 13px; }
+  .kpi-value { font-size: 24px; margin: 4px 0; }
+  .kpi-sub { font-size: 12px; line-height: 1.35; }
+
+  /* 좌우 2단 → 세로 1열 (한 화면 스크롤 피드) */
+  .dashboard-grid { grid-template-columns: 1fr; gap: 14px; }
+
+  /* 표 → 피드형 리스트 (대시보드 요약 카드) */
+  .feed-table,
+  .feed-table tbody { display: block; width: 100%; }
+  .feed-table thead { display: none; }
+  .feed-table tr {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    column-gap: 8px;
+    row-gap: 4px;
+    align-items: center;
+    padding: 12px 2px;
+    border-bottom: 1px solid #f1f5f9;
+    -webkit-tap-highlight-color: rgba(37, 99, 235, 0.08);
+  }
+  .feed-table tr:last-child { border-bottom: none; }
+  .feed-table tr:active { background: #f1f5f9; }
+  .feed-table tr:hover td { background: transparent; }
+  .feed-table td {
+    display: block;
+    min-width: 0;
+    padding: 0 !important;
+    border: none !important;
+  }
+  .feed-table td.f-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 18px 0 !important;
+  }
+  /* 최근 결재: [신청자 ........ 상태] / [구분(일수) ...... 기간] */
+  .feed-table .f-name { grid-column: 1 / 3; grid-row: 1; font-size: 15px; }
+  .feed-table .f-status { grid-column: 3; grid-row: 1; justify-self: end; }
+  .feed-table .f-type { grid-column: 1; grid-row: 2; font-size: 13px; }
+  .feed-table .f-period {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    justify-self: end;
+    font-size: 12.5px !important;
+  }
+  /* 최근 공지: [배지 제목] / [      작성자 ...... 날짜] */
+  .feed-table .f-badge { grid-column: 1; grid-row: 1; }
+  .feed-table .f-title { grid-column: 2 / 4; grid-row: 1; font-size: 15px; line-height: 1.35; }
+  .feed-table .f-author { grid-column: 2; grid-row: 2; font-size: 12.5px; color: var(--text-muted); }
+  .feed-table .f-date {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    font-size: 12.5px !important;
+  }
+
+  /* ---------- 팝업 / 토스트 / 푸터 ---------- */
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .toast { font-size: 14px; }
+  .modal-card {
+    max-height: 90vh;
+    max-height: 90dvh;
+    overflow-y: auto;
+    padding: 18px;
+  }
+  .modal-body { max-height: 50vh; }
+  .app-footer {
+    padding: 14px;
+    font-size: 11px;
+    flex-direction: column;
+    gap: 4px;
   }
 }

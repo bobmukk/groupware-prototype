@@ -32,6 +32,15 @@
           <input type="password" id="login-pw" placeholder="비밀번호 입력" autocapitalize="none" required />
         </div>
         <div id="auth-error" class="error-msg hidden"></div>
+        <!-- ✅ 로그인 버튼 바로 위에 아래 블록 추가 -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:4px 0 14px; font-size:13px; color:#475569;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="chk-save-email" /> 아이디 저장
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="chk-keep-login" /> 로그인 유지
+          </label>
+        </div>
         <button type="submit" class="btn-primary btn-full">로그인하기</button>
       </form>
 
@@ -70,6 +79,7 @@
 
   <!-- 2. 메인 그룹웨어 레이아웃 -->
   <div id="app-layout" class="app-container hidden">
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
     <aside class="sidebar">
       <div class="sidebar-brand" id="brand-home">
         <div class="logo-badge-sm">TI</div>
@@ -92,7 +102,7 @@
           <button class="nav-item" data-page="notice">📢 회사 공지사항</button>
           <button class="nav-item" data-page="board">💬 사내 게시판</button>
         </div>
-        <div class="nav-group">
+        <div class="nav-group hidden" id="nav-group-admin">
           <div class="nav-group-title">C. 관리자 전용</div>
           <button class="nav-item" data-page="admin">⚙️ 가입승인 및 연차관리</button>
         </div>
@@ -102,6 +112,7 @@
     <div class="main-wrapper">
       <header class="top-header">
         <div class="header-left">
+          <button type="button" id="btn-menu-toggle" class="menu-toggle" aria-label="메뉴 열기">☰</button>
           <h2 id="current-page-title">대시보드</h2>
           <span class="sim-badge">RLS 보안 작동중</span>
         </div>

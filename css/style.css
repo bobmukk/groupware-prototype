@@ -701,7 +701,7 @@ body {
 }
 
 /* =========================================================
-   4. 월간 그리드 휴가 캘린더 & 다중 휴가 자동 스태킹 바(Bar) UI
+   4. 월간 그리드 휴가 캘린더 (창 크기 연동 자동 반응형 + 모바일 스크롤 보호)
 ========================================================= */
 .cal-toolbar {
   display: flex;
@@ -715,27 +715,41 @@ body {
 .cal-nav-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .cal-month-title {
-  font-size: 18px;
+  font-size: clamp(15px, 1.6vw, 19px);
   font-weight: 800;
   color: #0f172a;
-  min-width: 120px;
+  min-width: 110px;
   text-align: center;
+}
+
+/* 창이 너무 좁아질 때 달력 격자가 찌그러지지 않도록 감싸서 가로 스크롤 허용 */
+#page-content .card {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cal-grid-header,
+.cal-week-row {
+  /* 화면이 넓을 땐 100% 꽉 차게 늘어나고, 창을 640px 이하로 좁히면 최소 폭을 유지해 글씨 깨짐 방지 */
+  width: 100%;
+  min-width: 640px;
 }
 
 .cal-grid-header {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   border-bottom: none;
   border-radius: 10px 10px 0 0;
   text-align: center;
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: clamp(11px, 1.1vw, 13px);
   padding: 8px 0;
 }
 
@@ -754,7 +768,7 @@ body {
 
 .cal-day-cells {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -762,8 +776,10 @@ body {
 
 .cal-day-cell {
   border-right: 1px solid #f1f5f9;
-  padding: 6px 8px;
-  font-size: 12px;
+  padding: clamp(4px, 0.6vw, 8px);
+  font-size: clamp(11px, 1vw, 12.5px);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .cal-day-cell:last-child {
@@ -780,16 +796,18 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
 }
 
 .cal-hol-label {
-  font-size: 10px;
+  font-size: clamp(9.5px, 0.85vw, 11px);
   color: #dc2626;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 75px;
+  max-width: 65%;
 }
 
 .cal-events-layer {
@@ -802,19 +820,100 @@ body {
   position: absolute;
   height: 22px;
   line-height: 22px;
-  font-size: 11.5px;
+  /* 창 크기에 맞춰 막대 안의 글자 크기와 여백도 유동적으로 자동 조절 */
+  font-size: clamp(10.5px, 0.95vw, 12px);
   font-weight: 700;
   color: #fff;
-  padding: 0 8px;
+  padding: 0 clamp(4px, 0.6vw, 8px);
   border-radius: 5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   z-index: 2;
+  transition: left 0.15s ease, width 0.15s ease, top 0.15s ease;
 }
 
-@media (max-width: 1024px) {
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .dashboard-grid { grid-template-columns: 1fr; }
+/* =========================================================
+   5. 스마트폰(모바일) 전용 반응형 레이아웃 최적화
+========================================================= */
+@media (max-width: 768px) {
+  .login-card {
+    width: 96% !important;
+    padding: 24px 18px !important;
+  }
+
+  .login-notice {
+    white-space: normal !important; /* 모바일 좁은 화면에서는 자연스럽게 줄바꿈 허용 */
+    line-height: 1.4 !important;
+  }
+
+  .app-container {
+    flex-direction: column;
+  }
+
+  /* 모바일에서는 좌측 고정 사이드바를 상단 메뉴 바로 전환 */
+  .sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    overflow-x: auto;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .nav-group {
+    display: flex;
+    margin-bottom: 0;
+    gap: 6px;
+  }
+
+  .nav-group-title {
+    display: none;
+  }
+
+  .nav-item {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+
+  .main-wrapper {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .top-header {
+    height: auto;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .header-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .page-content {
+    padding: 14px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .welcome-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+  }
 }

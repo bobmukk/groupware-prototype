@@ -66,8 +66,8 @@ const StorageDB = {
               phone: p.phone || ""
             }));
             const myLatest = localDb.users.find(u => u.id === currentUser.id);
-            if (myLatest) {
-              localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(myLatest));
+            if (myLatest && typeof Auth.saveCurrentUser === "function") {
+              Auth.saveCurrentUser(myLatest);
               if (typeof App !== "undefined" && typeof App.updateHeaderUserInfo === "function") {
                 App.updateHeaderUserInfo(myLatest);
               }

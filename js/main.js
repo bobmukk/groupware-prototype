@@ -52,16 +52,33 @@ const App = {
   calMonth: new Date().getMonth() + 1,
   loadedYears: new Set(),
 
-  init() {
+ init() {
     StorageDB.init();
     const curYear = new Date().getFullYear();
     this.fetchPublicHolidaysFromAPI(curYear);
     this.fetchPublicHolidaysFromAPI(curYear + 1);
 
     this.bindGlobalEvents();
+
+    // 브라우저 뒤로가기 / 앞으로가기 버튼 클릭 시 버벅임 없이 해당 메뉴로 즉시 전환
+    window.addEventListener("popstate", (e) => {
+      const user = Auth.getCurrentUser();
+      if (!user) return this.showLoginScreen();
+      const targetPage = (e.state && e.state.page) ? e.state.page : (location.hash.replace("#", "") || "dashboard");
+      this.navigateTo(targetPage, false);
+    });
+
+    // 주소창에 해시(#) 없이 처음 링크(https://.../groupware-prototype/)로 접속한 경우 무조건 로그인 화면 표시
+    if (!location.hash) {
+      Auth.logout();
+      this.showLoginScreen();
+      return;
+    }
+
     const sessionUser = Auth.getCurrentUser();
     if (sessionUser) {
-      this.enterApp(sessionUser);
+      const startPage = location.hash.replace("#", "") || "dashboard";
+      this.enterApp(sessionUser, startPage);
     } else {
       this.showLoginScreen();
     }
@@ -140,24 +157,39 @@ const App = {
   populateHeaderSwitcher() {},
 
   bindGlobalEvents() {
+    // 1. 로그인 (모바일 지연 방지 및 즉시 대시보드 진입 적용)
     document.getElementById("login-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = document.getElementById("login-email").value.trim();
       const pw = document.getElementById("login-pw").value.trim();
       const errEl = document.getElementById("auth-error");
+      const submitBtn = e.target.querySelector("button[type='submit']");
 
-      const res = await Auth.login(email, pw);
-      if (!res.success) {
-        errEl.textContent = res.message;
+      try {
+        if (submitBtn) submitBtn.textContent = "로그인 중...";
+        const res = await Auth.login(email, pw);
+        if (submitBtn) submitBtn.textContent = "로그인하기";
+
+        if (!res.success) {
+          errEl.textContent = res.message;
+          errEl.classList.remove("hidden");
+          return;
+        }
+        errEl.classList.add("hidden");
+        // 모바일에서 지연 없이 즉시 메인 화면으로 먼저 진입!
+        this.enterApp(res.user, "dashboard");
+        this.showToast(`환영합니다, ${res.user.name} ${res.user.position}님!`);
+        // 화면 진입 후 백그라운드에서 데이터 동기화
+        await StorageDB.syncFromCloud();
+        this.navigateTo("dashboard", false);
+      } catch (err) {
+        if (submitBtn) submitBtn.textContent = "로그인하기";
+        errEl.textContent = "로그인 처리 중 오류가 발생했습니다: " + err.message;
         errEl.classList.remove("hidden");
-        return;
       }
-      errEl.classList.add("hidden");
-      await StorageDB.syncFromCloud();
-      this.showToast(`환영합니다, ${res.user.name} ${res.user.position}님!`);
-      this.enterApp(Auth.getCurrentUser() || res.user);
     });
 
+    // 2. 회원가입
     document.getElementById("signup-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = document.getElementById("signup-name").value.trim();
@@ -183,9 +215,10 @@ const App = {
 
       await StorageDB.syncFromCloud();
       this.showToast("마스터 관리자 계정으로 가입 및 로그인되었습니다!");
-      this.enterApp(res.user);
+      this.enterApp(res.user, "dashboard");
     });
 
+    // 3. 사이드바 메뉴 및 좌측 상단 GW 로고 클릭
     document.querySelectorAll(".nav-item").forEach(btn => {
       btn.addEventListener("click", () => {
         this.editingLeaveDocId = null;
@@ -193,10 +226,15 @@ const App = {
       });
     });
 
-    document.getElementById("brand-home").addEventListener("click", () => this.navigateTo("dashboard"));
+    document.getElementById("brand-home").addEventListener("click", () => {
+      this.editingLeaveDocId = null;
+      this.navigateTo("dashboard");
+    });
 
+    // 4. 로그아웃 버튼 클릭 시 주소창 해시(#) 깨끗이 제거 후 로그인 화면 복귀
     document.getElementById("btn-logout").addEventListener("click", () => {
       Auth.logout();
+      history.replaceState(null, "", location.pathname);
       this.showLoginScreen();
     });
 
@@ -256,13 +294,13 @@ const App = {
     document.getElementById("app-layout").classList.add("hidden");
   },
 
-  enterApp(user) {
+  enterApp(user, initialPage = "dashboard") {
     document.getElementById("login-screen").classList.add("hidden");
     document.getElementById("app-layout").classList.remove("hidden");
     this.updateHeaderUserInfo(user);
     const db = StorageDB.getData();
     this.updateNotificationBadge(db.notifications || []);
-    this.navigateTo("dashboard");
+    this.navigateTo(initialPage, true);
   },
 
   updateHeaderUserInfo(user) {
@@ -366,20 +404,30 @@ const App = {
     `).join("");
   },
 
-  navigateTo(pageKey) {
+  navigateTo(pageKey, pushHistory = true) {
     const user = Auth.getCurrentUser();
     if (!user) return this.showLoginScreen();
-    this.currentPage = pageKey;
+
+    const validPage = PAGE_TITLES[pageKey] ? pageKey : "dashboard";
+    this.currentPage = validPage;
     this.updateHeaderUserInfo(user);
 
+    // 브라우저 주소창 해시(#dashboard 등) 기록 -> 뒤로가기 완벽 작동!
+    if (pushHistory && location.hash !== `#${validPage}`) {
+      history.pushState({ page: validPage }, "", `#${validPage}`);
+    }
+
     document.querySelectorAll(".nav-item").forEach(btn => {
-      btn.classList.toggle("active", btn.getAttribute("data-page") === pageKey);
+      btn.classList.toggle("active", btn.getAttribute("data-page") === validPage);
     });
-    document.getElementById("current-page-title").textContent = PAGE_TITLES[pageKey] || "그룹웨어";
+    document.getElementById("current-page-title").textContent = PAGE_TITLES[validPage] || "대시보드";
     const container = document.getElementById("page-content");
 
-    if (pageKey === "dashboard") return DashboardModule.render(container, user);
-    this.renderSubPageContent(container, pageKey, user);
+    if (validPage === "dashboard") {
+      DashboardModule.render(container, user);
+      return;
+    }
+    this.renderSubPageContent(container, validPage, user);
   },
 
   openApproverModal() {

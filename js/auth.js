@@ -1,15 +1,19 @@
 /**
- * js/auth.js (내 이메일만 마스터 관리자로 지정 + 나머지 전원 관리자 승인 대기)
+ * js/auth.js (1단계: 탭 종료 및 링크 재접속 시 자동 로그아웃되는 sessionStorage 적용)
  */
 const TOKEN_KEY = "gw_supabase_access_token";
 const USER_PROFILE_KEY = "gw_supabase_user_profile";
 
-// 👇 여기에 회원님(관리자)이 회원가입할 때 사용할 이메일 주소를 정확히 적어주세요!
+// 👇 회원님(마스터 관리자)의 이메일 주소를 유지하세요!
 const MASTER_ADMIN_EMAIL = "dyswn123@naver.com";
+
+// 기존 localStorage에 남아있던 영구 로그인 흔적 자동 청소
+localStorage.removeItem(TOKEN_KEY);
+localStorage.removeItem(USER_PROFILE_KEY);
 
 const Auth = {
   getToken() {
-    return localStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY);
   },
 
   async signup(email, password, name, position, dept) {
@@ -26,7 +30,6 @@ const Auth = {
       const userId = data.user ? data.user.id : data.id;
       if (!token || !userId) throw new Error("Supabase에서 Confirm email 설정을 꺼주세요.");
 
-      // 내 이메일과 일치할 때만 즉시 ADMIN & APPROVED 부여! (나머지는 전부 PENDING 대기)
       const isMasterAdmin = (email.trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
       const role = isMasterAdmin ? "ADMIN" : (position.includes("대표") ? "CEO" : "USER");
       const approvalStatus = isMasterAdmin ? "APPROVED" : "PENDING";
@@ -54,19 +57,17 @@ const Auth = {
         body: JSON.stringify(profileRow)
       });
 
-      // 일반 직원은 가입 신청 직후 로그인 차단 및 안내 메시지 출력
       if (approvalStatus === "PENDING") {
         return {
           success: true,
           pending: true,
-          message: "✅ 가입 신청이 접수되었습니다! 관리자가 [가입승인 및 직원관리] 메뉴에서 승인하면 로그인하실 수 있습니다."
+          message: "✅ 가입 신청이 접수되었습니다! 관리자가 [가입승인 및 연차관리] 메뉴에서 승인하면 로그인하실 수 있습니다."
         };
       }
 
-      // 마스터 관리자(나)는 가입 즉시 자동 로그인
-      localStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(TOKEN_KEY, token);
       const appUser = this.mapProfileToUser(profileRow);
-      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
       return { success: true, pending: false, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
@@ -94,7 +95,6 @@ const Auth = {
 
       if (!profileRow) throw new Error("등록된 직원 프로필이 없습니다.");
 
-      // 만약 내가 이미 가입해 둔 계정인데 이메일이 마스터 관리자 이메일이라면 자동으로 ADMIN 승격
       if (email.trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase() && profileRow.role !== "ADMIN") {
         profileRow.role = "ADMIN";
         profileRow.approval_status = "APPROVED";
@@ -109,7 +109,6 @@ const Auth = {
         });
       }
 
-      // 관리자 미승인 계정 차단
       if (profileRow.approval_status === "PENDING") {
         throw new Error("⏳ 아직 관리자 승인 대기 중입니다. 관리자에게 사용 승인을 요청해 주세요.");
       }
@@ -117,9 +116,9 @@ const Auth = {
         throw new Error("⛔ 가입이 반려되었거나 사용이 중지된 계정입니다.");
       }
 
-      localStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(TOKEN_KEY, token);
       const appUser = this.mapProfileToUser(profileRow);
-      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
+      sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(appUser));
       return { success: true, user: appUser };
     } catch (err) {
       return { success: false, message: err.message };
@@ -133,6 +132,7 @@ const Auth = {
       name: p.name,
       dept: p.dept,
       position: p.position,
+      phone: p.phone || "",
       role: p.role || "USER",
       approvalStatus: p.approval_status || "APPROVED",
       annualTotal: Number(p.annual_total ?? 15),
@@ -141,14 +141,20 @@ const Auth = {
   },
 
   logout() {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_PROFILE_KEY);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_PROFILE_KEY);
   },
 
   getCurrentUser() {
-    const raw = localStorage.getItem(USER_PROFILE_KEY);
+    const raw = sessionStorage.getItem(USER_PROFILE_KEY);
     if (!raw) return null;
     try { return JSON.parse(raw); } catch (e) { return null; }
+  },
+
+  saveCurrentUser(userObj) {
+    sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userObj));
   },
 
   getRoleLabel(role) {

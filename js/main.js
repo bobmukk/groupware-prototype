@@ -1205,66 +1205,78 @@ const App = {
       return;
     }
 
-    // 6. 회사 공지사항 (클릭 상세보기 + 관리자 전체 수정/삭제)
+    // 6. 회사 공지사항 (시스템 관리자 전용 등록/수정/삭제, 그 외 임직원은 열람 전용)
     if (pageKey === "notice") {
-      const isAdmin = Auth.isAdmin(user);
+      const canEditNotice = user && user.role === "ADMIN";
       container.innerHTML = `
-        <div class="card" style="margin-bottom:18px;">
-          <div class="card-header"><h4>📢 신규 공지사항 등록</h4></div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <input id="n-title" type="text" placeholder="공지 제목을 입력하세요" style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px;" />
-            <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="n-pin" /> 상단고정</label>
-            <button class="btn-primary" id="btn-save-notice">공지 등록</button>
+        ${canEditNotice ? `
+          <div class="card" style="margin-bottom:18px;">
+            <div class="card-header"><h4>📢 신규 공지사항 등록 (관리자 전용)</h4></div>
+            <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+              <input id="n-title" type="text" placeholder="공지 제목을 입력하세요" style="flex:1; min-width:200px; padding:8px; border:1px solid #cbd5e1; border-radius:6px;" />
+              <label style="display:flex; align-items:center; gap:4px; font-size:13px; font-weight:600; cursor:pointer;">
+                <input type="checkbox" id="n-pin" /> 중요 공지(상단고정)
+              </label>
+              <button class="btn-primary" id="btn-save-notice">공지 등록</button>
+            </div>
+            <textarea id="n-content" rows="2" placeholder="공지 상세 내용" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
           </div>
-          <textarea id="n-content" rows="2" placeholder="공지 상세 내용" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
-        </div>
+        ` : ""}
         <div class="card">
           <div class="card-header"><h4>📌 공지사항 목록 (${(db.notices || []).length}건) · 제목을 클릭하면 상세 내용을 볼 수 있습니다</h4></div>
           <table class="list-table">
-            <thead><tr><th>구분</th><th>제목 / 내용</th><th>작성자</th><th>작성일</th><th>관리</th></tr></thead>
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th>제목 / 내용</th>
+                <th>작성자</th>
+                <th>작성일</th>
+                ${canEditNotice ? "<th>관리</th>" : ""}
+              </tr>
+            </thead>
             <tbody>
-              ${(db.notices || []).length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>` : ""}
-              ${(db.notices || []).map((n, idx) => {
-                const canManage = isAdmin || (n.author || "").includes(user.name);
-                return `
-                  <tr>
-                    <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
-                    <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
-                      <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
-                      <span style="color:#64748b; font-size:12px;">${(n.content || "").slice(0, 60)}${(n.content || "").length > 60 ? "..." : ""}</span>
-                    </td>
-                    <td>${n.author}</td>
-                    <td>${n.date}</td>
+              ${(db.notices || []).length === 0 ? `<tr><td colspan="${canEditNotice ? 5 : 4}" style="text-align:center; padding:20px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>` : ""}
+              ${(db.notices || []).map((n, idx) => `
+                <tr>
+                  <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
+                  <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
+                    <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
+                    <span style="color:#64748b; font-size:12px;">${(n.content || "").slice(0, 60)}${(n.content || "").length > 60 ? "..." : ""}</span>
+                  </td>
+                  <td>${n.author}</td>
+                  <td>${n.date}</td>
+                  ${canEditNotice ? `
                     <td>
-                      ${canManage ? `
-                        <button class="link-btn" style="margin-right:8px;" onclick="App.openPostModal('notice', ${idx}, true)">수정</button>
-                        <button class="link-btn" style="color:#dc2626;" onclick="App.deletePost('notice', ${idx})">삭제</button>
-                      ` : "-"}
+                      <button class="link-btn" style="margin-right:8px;" onclick="App.openPostModal('notice', ${idx}, true)">수정</button>
+                      <button class="link-btn" style="color:#dc2626;" onclick="App.deletePost('notice', ${idx})">삭제</button>
                     </td>
-                  </tr>
-                `;
-              }).join("")}
+                  ` : ""}
+                </tr>
+              `).join("")}
             </tbody>
           </table>
         </div>
       `;
-      document.getElementById("btn-save-notice").onclick = () => {
-        const title = document.getElementById("n-title").value.trim();
-        const content = document.getElementById("n-content").value.trim();
-        const pinned = document.getElementById("n-pin").checked;
-        if (!title) return alert("공지 제목을 입력해 주세요.");
-        db.notices.unshift({
-          id: "N-" + Date.now(),
-          title,
-          content,
-          pinned,
-          author: `${user.name} ${user.position}`,
-          date: new Date().toISOString().slice(0, 10)
-        });
-        StorageDB.saveData(db);
-        this.showToast("공지사항이 등록되었습니다.");
-        this.navigateTo("notice");
-      };
+
+      if (canEditNotice) {
+        document.getElementById("btn-save-notice").onclick = () => {
+          const title = document.getElementById("n-title").value.trim();
+          const content = document.getElementById("n-content").value.trim();
+          const pinned = document.getElementById("n-pin").checked;
+          if (!title) return alert("공지 제목을 입력해 주세요.");
+          db.notices.unshift({
+            id: "N-" + Date.now(),
+            title,
+            content,
+            pinned,
+            author: `${user.name} ${user.position}`,
+            date: new Date().toISOString().slice(0, 10)
+          });
+          StorageDB.saveData(db);
+          this.showToast("공지사항이 등록되었습니다.");
+          this.navigateTo("notice");
+        };
+      }
       return;
     }
   },
@@ -1361,7 +1373,9 @@ const App = {
 
     this.activePostTarget = { type, idx };
     const isAdmin = Auth.isAdmin(user);
-    const canManage = isAdmin || (item.author || "").includes(user.name);
+    const canManage = type === "notice"
+      ? (user && user.role === "ADMIN")
+      : (isAdmin || (item.author || "").includes(user.name));
 
     const viewArea = document.getElementById("post-view-area");
     const editArea = document.getElementById("post-edit-area");

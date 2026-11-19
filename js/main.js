@@ -53,12 +53,17 @@ const App = {
   loadedYears: new Set(),
 
  init() {
-    StorageDB.init();
+    // 이벤트 바인딩을 최우선으로 수행 (이후 단계에서 오류가 나도 로그인 폼이 새로고침되지 않도록)
+    this.bindGlobalEvents();
+
+    try {
+      StorageDB.init();
+    } catch (e) {
+      console.error("StorageDB 초기화 실패:", e);
+    }
     const curYear = new Date().getFullYear();
     this.fetchPublicHolidaysFromAPI(curYear);
     this.fetchPublicHolidaysFromAPI(curYear + 1);
-
-    this.bindGlobalEvents();
 
     // 브라우저 뒤로가기 / 앞으로가기 버튼 클릭 시 버벅임 없이 해당 메뉴로 즉시 전환
     window.addEventListener("popstate", (e) => {
@@ -68,15 +73,10 @@ const App = {
       this.navigateTo(targetPage, false);
     });
 
-    // 주소창에 해시(#) 없이 처음 링크(https://.../groupware-prototype/)로 접속한 경우 무조건 로그인 화면 표시
-    if (!location.hash) {
-      Auth.logout();
-      this.showLoginScreen();
-      return;
-    }
-
+    // 로그인 정보는 sessionStorage에만 저장되므로 탭/브라우저 종료 시 자동 로그아웃됨.
+    // 해시(#)가 없어도(모바일 인앱 브라우저가 해시를 제거하는 경우 등) 세션이 살아있으면 로그인 유지.
     const sessionUser = Auth.getCurrentUser();
-    if (sessionUser) {
+    if (sessionUser && Auth.getToken()) {
       const startPage = location.hash.replace("#", "") || "dashboard";
       this.enterApp(sessionUser, startPage);
     } else {

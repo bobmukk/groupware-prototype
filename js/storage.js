@@ -10,6 +10,14 @@ const SUPABASE_ANON_KEY = "sb_publishable_x1BskJJNm56LtqkWKt8RHw_44e7TjKA";
 const STORAGE_KEY = "gw_prototype_phase1_db";
 const STATE_ROW_ID = "company_main_state";
 
+// data.js 로드 실패/누락 시에도 앱이 멈추지 않도록 하는 방어용 시드 (매번 새 복사본 반환)
+function getSeedData() {
+  const base = (typeof INITIAL_SEED_DATA !== "undefined" && INITIAL_SEED_DATA)
+    ? INITIAL_SEED_DATA
+    : { users: [], departments: [], leaveRequests: [], notices: [], boardPosts: [], notifications: [] };
+  return JSON.parse(JSON.stringify(base));
+}
+
 const StorageDB = {
   getHeaders(isWrite = false) {
     const token = (typeof Auth !== "undefined" && Auth.getToken()) ? Auth.getToken() : SUPABASE_ANON_KEY;
@@ -26,7 +34,7 @@ const StorageDB = {
   init() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_SEED_DATA));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(getSeedData()));
     }
     this.syncFromCloud();
   },
@@ -383,24 +391,22 @@ const StorageDB = {
 
   getData() {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return INITIAL_SEED_DATA;
+    if (!raw) return getSeedData();
     try {
       const parsed = JSON.parse(raw);
-      if (!parsed.notifications) parsed.notifications = [];
+      if (!parsed || typeof parsed !== "object") return getSeedData();
+      ["users", "departments", "leaveRequests", "notices", "boardPosts", "notifications"].forEach(k => {
+        if (!Array.isArray(parsed[k])) parsed[k] = [];
+      });
       return parsed;
     } catch (e) {
-      return INITIAL_SEED_DATA;
+      return getSeedData();
     }
   },
 
   saveData(newData) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
     this.pushToCloud(newData);
-  },
-
-  resetToSeed() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_SEED_DATA));
-    this.pushToCloud(INITIAL_SEED_DATA);
   },
 
   setSessionUser() {}

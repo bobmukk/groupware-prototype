@@ -1133,29 +1133,47 @@ const App = {
 
       const allUsers = db.users || [];
       const pendingUsers = allUsers.filter(u => u.approvalStatus === "PENDING");
+      const rejectedUsers = allUsers.filter(u => u.approvalStatus === "REJECTED");
+      const reviewUsers = [...pendingUsers, ...rejectedUsers];
       const customHolidays = this.getCustomHolidays();
       const customEntries = Object.entries(customHolidays).sort((a, b) => a[0].localeCompare(b[0]));
 
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; border-left:4px solid #f59e0b;">
-          <div class="card-header"><h4>⏳ 신규 가입 승인 대기 목록 (${pendingUsers.length}명)</h4></div>
-          ${pendingUsers.length === 0
-            ? `<p style="font-size:13px; color:#64748b;">현재 승인 대기 중인 가입 신청자가 없습니다.</p>`
+          <div class="card-header">
+            <h4>⏳ 신규 가입 승인 대기 및 반려 계정 관리 (대기 ${pendingUsers.length}명 / 반려 ${rejectedUsers.length}명)</h4>
+          </div>
+          ${reviewUsers.length === 0
+            ? `<p style="font-size:13px; color:#64748b;">현재 승인 대기 중이거나 반려된 가입 신청자가 없습니다.</p>`
             : `<table class="list-table">
-                <thead><tr><th>이름</th><th>부서 / 직급</th><th>이메일</th><th>상태</th><th>승인 처리</th></tr></thead>
+                <thead><tr><th>이름</th><th>부서 / 직급</th><th>이메일</th><th>상태</th><th>승인 / 복구 처리</th></tr></thead>
                 <tbody>
-                  ${pendingUsers.map(u => `
+                  ${reviewUsers.map(u => {
+                    const isRejected = u.approvalStatus === "REJECTED";
+                    return `
                     <tr>
                       <td><strong>${u.name}</strong></td>
                       <td>${u.dept} · ${u.position}</td>
                       <td>${u.email}</td>
-                      <td><span class="status-badge status-PENDING">승인 대기</span></td>
                       <td>
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">✅ 사용 승인</button>
-                        <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 가입 반려</button>
+                        ${isRejected
+                          ? `<span class="status-badge status-REJECTED">⛔ 가입 반려됨</span>`
+                          : `<span class="status-badge status-PENDING">⏳ 승인 대기</span>`}
+                      </td>
+                      <td>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                          <button class="btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">
+                            ${isRejected ? "🔄 승인으로 복구" : "✅ 사용 승인"}
+                          </button>
+                          ${!isRejected ? `
+                            <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 가입 반려</button>
+                          ` : `
+                            <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#64748b;" onclick="App.deleteUserAccount('${u.id}')">🗑️ 완전 삭제</button>
+                          `}
+                        </div>
                       </td>
                     </tr>
-                  `).join("")}
+                  `;}).join("")}
                 </tbody>
               </table>`
           }
@@ -1211,6 +1229,12 @@ const App = {
                 const t = Number(u.annualTotal ?? 15);
                 const used = Number(u.annualUsed ?? 0);
                 const rem = Number((t - used).toFixed(1));
+                const isMasterRow = (u.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
+                const statusBadgeHtml = u.approvalStatus === "APPROVED"
+                  ? `<span class="status-badge status-APPROVED">✅ 승인됨</span>`
+                  : u.approvalStatus === "REJECTED"
+                  ? `<span class="status-badge status-REJECTED">⛔ 반려됨</span>`
+                  : `<span class="status-badge status-PENDING">⏳ 대기</span>`;
                 return `
                   <tr>
                     <td><strong>${u.name}</strong><br/><span style="font-size:11px; color:#64748b;">${u.email || "-"}</span></td>
@@ -1218,9 +1242,22 @@ const App = {
                     <td><input type="number" id="total-${u.id}" value="${t}" step="0.5" style="width:70px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;" /></td>
                     <td><input type="number" id="used-${u.id}" value="${used}" step="0.5" style="width:70px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;" /></td>
                     <td><strong style="color:#1d4ed8;">${rem}일</strong></td>
-                    <td>${u.approvalStatus === "APPROVED" ? "✅ 승인됨" : "⏳ 대기"}</td>
+                    <td>${statusBadgeHtml}</td>
                     <td>
-                      <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="App.saveUserLeave('${u.id}')">연차 저장</button>
+                      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="App.saveUserLeave('${u.id}')">연차 저장</button>
+                        ${u.approvalStatus === "REJECTED" ? `
+                          <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#047857; border-color:#a7f3d0; background:#ecfdf5;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">🔄 승인 복구</button>
+                        ` : u.approvalStatus === "PENDING" ? `
+                          <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#047857; border-color:#a7f3d0;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">✅ 승인</button>
+                          <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 반려</button>
+                        ` : !isMasterRow ? `
+                          <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 반려(중지)</button>
+                        ` : ""}
+                        ${!isMasterRow ? `
+                          <button class="btn-logout" title="프로필 완전 삭제" style="padding:5px 8px; font-size:12px; color:#64748b;" onclick="App.deleteUserAccount('${u.id}')">🗑️</button>
+                        ` : ""}
+                      </div>
                     </td>
                   </tr>
                 `;
@@ -1464,17 +1501,66 @@ const App = {
     }
   },
 
+  // 가입 승인(APPROVED) / 가입 반려(REJECTED) 상태 변경 (행 삭제 없이 profiles.approval_status만 PATCH)
   async approveUserAccount(targetUserId, newStatus) {
     try {
+      const db = StorageDB.getData();
+      const targetUser = (db.users || []).find(u => String(u.id) === String(targetUserId));
+      const targetLabel = targetUser ? `${targetUser.name}(${targetUser.email || ""})` : "해당 계정";
+
+      if (newStatus === "REJECTED") {
+        if (!confirm(`${targetLabel} 계정을 반려(사용 중지) 처리하시겠습니까?\n\n※ 프로필 데이터는 삭제되지 않고 'REJECTED' 상태로 보관되며, 언제든 다시 [승인으로 복구]할 수 있습니다.`)) {
+          return;
+        }
+      }
+
       const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${targetUserId}`, {
         method: "PATCH",
-        headers: StorageDB.getHeaders(true),
+        headers: { ...StorageDB.getHeaders(true), "Prefer": "return=representation" },
         body: JSON.stringify({ approval_status: newStatus })
       });
-      if (!res.ok) throw new Error("상태 변경 실패");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(`계정 상태 변경 실패 (${res.status}: ${err.message || err.msg || res.statusText})`);
+      }
 
       await StorageDB.syncFromCloud();
-      this.showToast(newStatus === "APPROVED" ? "✅ 직원 계정 사용 승인이 완료되었습니다!" : "⛔ 가입 신청이 반려되었습니다.");
+      this.showToast(
+        newStatus === "APPROVED"
+          ? `✅ ${targetLabel} 계정 사용 승인(복구)이 완료되었습니다!`
+          : `⛔ ${targetLabel} 계정이 반려(사용 중지) 상태로 변경되었습니다.`
+      );
+      this.navigateTo("admin");
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  // 직원 프로필 완전 삭제 (auth.users와 불일치 방지를 위한 안내 포함)
+  async deleteUserAccount(targetUserId) {
+    try {
+      const db = StorageDB.getData();
+      const targetUser = (db.users || []).find(u => String(u.id) === String(targetUserId));
+      const targetLabel = targetUser ? `${targetUser.name} (${targetUser.email || "-"})` : targetUserId;
+
+      const confirmed = confirm(
+        `[${targetLabel}] 직원 프로필을 완전히 삭제하시겠습니까?\n\n` +
+        `⚠️ 중요: Supabase Authentication에서도 해당 이메일을 함께 삭제해야 동일 이메일 재가입이 가능합니다.\n` +
+        `(단순 로그인 차단이나 반려 목적이라면 삭제 대신 '가입 반려' 기능을 사용해 주세요.)`
+      );
+      if (!confirmed) return;
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${targetUserId}`, {
+        method: "DELETE",
+        headers: StorageDB.getHeaders()
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(`프로필 삭제 실패 (${res.status}: ${err.message || err.msg || res.statusText})`);
+      }
+
+      await StorageDB.syncFromCloud();
+      this.showToast(`🗑️ ${targetLabel} 프로필이 삭제되었습니다. (재가입 시 Supabase Auth에서도 삭제 필요)`);
       this.navigateTo("admin");
     } catch (err) {
       alert(err.message);

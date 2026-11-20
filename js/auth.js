@@ -98,27 +98,88 @@ const Auth = {
     }
   },
 
+  // Supabase Auth 영문 에러 메시지 및 응답 코드를 사용자 친화적인 한글 안내로 변환
+  translateSignupError(data, status) {
+    const raw = [
+      data?.msg,
+      data?.message,
+      data?.error_description,
+      data?.error,
+      data?.code,
+      data?.error_code
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+      raw.includes("already registered") ||
+      raw.includes("user_already_exists") ||
+      raw.includes("already exists") ||
+      raw.includes("email_exists") ||
+      raw.includes("duplicate")
+    ) {
+      return "⚠️ 이미 가입된 이메일입니다. 로그인하시거나 관리자에게 계정 초기화를 요청해 주세요.";
+    }
+    if (
+      raw.includes("password") &&
+      (raw.includes("at least") || raw.includes("short") || raw.includes("weak") || raw.includes("6") || raw.includes("length"))
+    ) {
+      return "⚠️ 비밀번호는 최소 6자리 이상으로 입력해 주세요.";
+    }
+    if (
+      raw.includes("invalid") && raw.includes("email") ||
+      raw.includes("unable to validate email") ||
+      raw.includes("email_address_invalid") ||
+      raw.includes("validation_failed")
+    ) {
+      return "⚠️ 이메일 주소 형식이 올바르지 않습니다. 다시 확인해 주세요.";
+    }
+    if (status === 429 || raw.includes("rate limit") || raw.includes("over_email_send_rate_limit") || raw.includes("too many")) {
+      return "⚠️ 단시간에 요청이 많아 일시 제한되었습니다. 잠시 후 다시 시도해 주세요.";
+    }
+    const fallback = data?.msg || data?.message || data?.error_description;
+    if (fallback && /[가-힣]/.test(fallback)) return fallback;
+    return `⚠️ 회원가입 요청에 실패했습니다${status ? ` (코드: ${status})` : ""}. 입력 정보를 확인하거나 관리자에게 문의해 주세요.`;
+  },
+
   async signup(email, password, name, position, dept) {
     try {
+      const cleanEmail = (email || "").trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+        throw new Error("⚠️ 이메일 주소 형식이 올바르지 않습니다. (예: user@company.com)");
+      }
+      if (!password || String(password).length < 6) {
+        throw new Error("⚠️ 비밀번호는 최소 6자리 이상으로 입력해 주세요.");
+      }
+
       const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
         method: "POST",
         headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: cleanEmail, password })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.msg || data.error_description || "회원가입에 실패했습니다.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(this.translateSignupError(data, res.status));
+      }
 
-      const token = data.access_token;
+      // Supabase에서 이미 가입된 이메일인 경우 identities가 빈 배열([])로 반환될 수 있음
+      const identities = data?.user?.identities ?? data?.identities;
+      if (Array.isArray(identities) && identities.length === 0) {
+        throw new Error("⚠️ 이미 가입된 이메일입니다. 로그인하시거나 관리자에게 계정 초기화를 요청해 주세요.");
+      }
+
+      const token = data.access_token || data?.session?.access_token;
       const userId = data.user ? data.user.id : data.id;
-      if (!token || !userId) throw new Error("Supabase에서 Confirm email 설정을 꺼주세요.");
+      if (!token || !userId) {
+        throw new Error("⚠️ 이미 가입된 이메일이거나 Supabase에서 Confirm email 설정이 켜져 있습니다. 로그인하시거나 관리자에게 계정 초기화를 요청해 주세요.");
+      }
 
-      const isMasterAdmin = (email.trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
-      const role = isMasterAdmin ? "ADMIN" : (position.includes("대표") ? "CEO" : "USER");
+      const isMasterAdmin = (cleanEmail.toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
+      const role = isMasterAdmin ? "ADMIN" : ((position || "").includes("대표") ? "CEO" : "USER");
       const approvalStatus = isMasterAdmin ? "APPROVED" : "PENDING";
 
       const profileRow = {
         id: userId,
-        email: email.trim(),
+        email: cleanEmail,
         name: name || "신규직원",
         dept: dept || "미지정",
         position: position || "사원",
@@ -128,7 +189,7 @@ const Auth = {
         annual_used: 0
       };
 
-      await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+      const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
         method: "POST",
         headers: {
           "apikey": SUPABASE_ANON_KEY,
@@ -138,6 +199,12 @@ const Auth = {
         },
         body: JSON.stringify(profileRow)
       });
+
+      if (!profRes.ok) {
+        const profErr = await profRes.json().catch(() => ({}));
+        const errMsg = profErr.message || profErr.msg || profErr.details || profErr.error || profRes.statusText || "알 수 없는 오류";
+        throw new Error(`⚠️ 직원 프로필 저장에 실패했습니다 (상태코드 ${profRes.status}: ${errMsg}). 관리자에게 문의해 주세요.`);
+      }
 
       if (approvalStatus === "PENDING") {
         return {

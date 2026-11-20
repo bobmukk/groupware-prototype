@@ -459,9 +459,11 @@ body {
 
 .page-content {
   flex: 1;
-  padding: 24px 28px;
-  max-width: 1400px;
+  /* 표준 웹 UI: 가운데 정렬 컨테이너(최대 1600px) + 화면 폭에 비례하는 좌우 여백 16~32px */
   width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 2.5vw, 32px);
 }
 
 /* =========================================================
@@ -606,11 +608,17 @@ body {
 }
 
 .status-badge {
-  display: inline-block;
-  padding: 3px 8px;
+  /* 글자가 도형 정중앙에 오도록 flex 중앙 정렬 + 좌우 대칭 패딩 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+  padding: 5px 10px;
   border-radius: 99px;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .status-PENDING,
@@ -852,14 +860,9 @@ body {
     flex-direction: column;
   }
 
-  /* 모바일: 사이드바는 슬라이드 메뉴로 동작 (아래 6번 섹션 참고) */
+  /* 모바일: 사이드바는 슬라이드 메뉴로 동작 (7번 섹션 참고) */
 
-  .main-wrapper {
-    margin-left: 0;
-    width: 100%;
-  }
-
-  /* 상단 헤더 / 콘텐츠 여백 등은 아래 6번 섹션에서 정의 */
+  /* 상단 헤더 / 콘텐츠 여백 등은 6번 섹션에서 정의 */
 
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -893,7 +896,6 @@ body {
 
 @media (max-width: 768px) {
   body { font-size: 15px; }
-  body.menu-open { overflow: hidden; }
 
   /* iOS Safari는 입력창 글자가 16px 미만이면 포커스 시 화면을 자동 확대함 → 방지 */
   input, select, textarea { font-size: 16px !important; }
@@ -910,73 +912,7 @@ body {
   .btn-primary,
   .btn-white { min-height: 44px; }
 
-  /* ---------- 슬라이드 메뉴(사이드바) ---------- */
-  .menu-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    flex: none;
-    border: 1px solid var(--border-color);
-    background: #fff;
-    border-radius: 8px;
-    font-size: 20px;
-    line-height: 1;
-    cursor: pointer;
-  }
-  .sidebar {
-    width: min(280px, 82vw);
-    transform: translateX(-100%);
-    transition: transform 0.22s ease;
-    z-index: 1100;
-  }
-  .sidebar.open {
-    transform: none;
-    box-shadow: 0 0 30px rgba(0, 0, 0, 0.45);
-  }
-  .sidebar-nav { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
-  .sidebar .nav-item {
-    min-height: 46px;
-    padding: 12px;
-    font-size: 15px;
-  }
-  .nav-group-title { font-size: 12px; }
-  .sidebar-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.5);
-    z-index: 1050;
-  }
-  .sidebar-backdrop.show { display: block; }
-
-  /* ---------- 상단 헤더 (한 줄로 슬림하게) ---------- */
-  .top-header {
-    height: 56px;
-    padding: 0 10px;
-    gap: 8px;
-    flex-wrap: nowrap;
-  }
-  .header-left { flex: 1; min-width: 0; gap: 8px; }
-  .header-left h2 {
-    font-size: 16px;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .sim-badge { display: none; }
-  .header-right { width: auto; flex: none; flex-wrap: nowrap; gap: 6px; }
-  .notif-btn { padding: 6px 10px; min-height: 36px; font-size: 13px; }
-  .user-meta,
-  #header-leave-badge { display: none !important; }
-  #btn-open-profile {
-    padding: 0 !important;
-    border: none !important;
-    background: none !important;
-  }
-  .user-avatar { width: 36px; height: 36px; }
-  .top-header .btn-logout { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+  /* 슬라이드 메뉴와 슬림 헤더는 7번 섹션(@media 1024px 이하)에서 정의 */
 
   /* 알림창: 화면 폭에 맞춰 고정 표시 (좁은 폰에서 잘림 방지) */
   .notif-dropdown {
@@ -1107,25 +1043,6 @@ body {
 .drawer-user { display: none; }
 
 @media (max-width: 768px) {
-  /* ---------- 슬라이드 메뉴 상단 사용자 카드 ---------- */
-  .drawer-user {
-    display: block;
-    margin: 0 0 14px;
-    padding: 14px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06);
-  }
-  .drawer-user .du-name { color: #fff; font-weight: 700; font-size: 16px; }
-  .drawer-user .du-sub { color: #94a3b8; font-size: 12.5px; margin-top: 2px; }
-  .drawer-user .du-leave {
-    margin-top: 10px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: rgba(37, 99, 235, 0.25);
-    color: #bfdbfe;
-    font-size: 13px;
-  }
-
   /* ---------- 표 → 카드 (전자결재 / 관리자 / 조직도 / 게시판 / 공지) ---------- */
   .stack-table,
   .stack-table tbody { display: block; width: 100%; min-width: 0; }
@@ -1209,4 +1126,161 @@ body {
   .cal-agenda-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 15px; }
   .cal-agenda-dept { font-size: 12.5px; color: var(--text-muted); }
   .cal-agenda-sub { margin-top: 4px; font-size: 13.5px; color: #475569; }
+}
+
+/* =========================================================
+   7. 데스크톱 컨테이너 및 태블릿/창모드 반응형
+   - 넓은 화면: .page-content 를 가운데 정렬(최대 1280px)하여 모든 메뉴의 여백·규격을 동일하게 유지
+   - 1100px 이하: KPI 2열 / 1024px 이하: 사이드바를 슬라이드 메뉴로 전환 / 768px 이하: 모바일 레이아웃
+========================================================= */
+.main-wrapper { min-width: 0; }
+.status-badge { white-space: nowrap; }
+
+/* 대시보드 요약 표: 구분 배지·작성자·날짜가 세로로 꺾이지 않도록 */
+@media (min-width: 769px) {
+  /* 대시보드 요약 표: 작성자·작성일·구분·상태는 한 줄 고정, 제목(공지)/구분·일수(결재)만 남는 폭에서 말줄임 */
+  .feed-table .f-badge,
+  .feed-table .f-author,
+  .feed-table .f-date,
+  .feed-table .f-name,
+  .feed-table .f-period,
+  .feed-table .f-status {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .feed-table .f-title,
+  .feed-table .f-type {
+    width: 100%;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .feed-table .f-badge { min-width: 56px; }
+  .feed-table .f-author { min-width: 84px; }
+  .feed-table .f-date { min-width: 92px; }
+
+  /* 공지사항·게시판·결재 등 일반 표: 구분/작성자/작성일/관리 열은 줄바꿈 금지 + 최소 폭, 제목 열만 유연 */
+  .stack-table th { white-space: nowrap; }
+  .stack-table td[data-label="구분"],
+  .stack-table td[data-label="분류"],
+  .stack-table td[data-label="작성자"],
+  .stack-table td[data-label="작성일"],
+  .stack-table td[data-label="관리"] { white-space: nowrap; }
+  .stack-table td[data-label="구분"] { min-width: 72px; }
+  .stack-table td[data-label="분류"] { min-width: 110px; }
+  .stack-table td[data-label="작성자"] { min-width: 120px; }
+  .stack-table td[data-label="작성일"] { min-width: 108px; }
+  .stack-table td[data-label="관리"] { min-width: 96px; }
+  .stack-table td[data-label="제목 / 내용"] { width: 100%; min-width: 220px; }
+}
+
+/* 대시보드 하단 요약 카드: 컨테이너 폭에 맞춰 2열 → 1열 자동 전환 (모바일은 아래 규칙에서 1열) */
+.dashboard-grid { grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); }
+
+@media (max-width: 1100px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 창모드 1025~1180px: 사이드바 폭을 줄여 콘텐츠 공간 확보 */
+@media (min-width: 1025px) and (max-width: 1180px) {
+  .sidebar { width: 220px; }
+  .main-wrapper { margin-left: 220px; }
+}
+
+/* 태블릿 / 좁은 창: 고정 사이드바 → 햄버거 슬라이드 메뉴 + 슬림 헤더 */
+@media (max-width: 1024px) {
+  body.menu-open { overflow: hidden; }
+  .main-wrapper { margin-left: 0; width: 100%; }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sidebar {
+    width: min(280px, 82vw);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 1100;
+  }
+  .sidebar.open {
+    transform: none;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.45);
+  }
+  .sidebar-nav { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .sidebar .nav-item {
+    min-height: 46px;
+    padding: 12px;
+    font-size: 15px;
+  }
+  .nav-group-title { font-size: 12px; }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 1050;
+  }
+  .sidebar-backdrop.show { display: block; }
+
+  /* 슬라이드 메뉴 상단 사용자 카드 (헤더에서 숨긴 이름/잔여 연차 표시) */
+  .drawer-user {
+    display: block;
+    margin: 0 0 14px;
+    padding: 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .drawer-user .du-name { color: #fff; font-weight: 700; font-size: 16px; }
+  .drawer-user .du-sub { color: #94a3b8; font-size: 12.5px; margin-top: 2px; }
+  .drawer-user .du-leave {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(37, 99, 235, 0.25);
+    color: #bfdbfe;
+    font-size: 13px;
+  }
+
+  /* 상단 헤더 (한 줄로 슬림하게) */
+  .top-header {
+    height: 56px;
+    padding: 0 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .header-left { flex: 1; min-width: 0; gap: 8px; }
+  .header-left h2 {
+    font-size: 16px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sim-badge { display: none; }
+  .header-right { width: auto; flex: none; flex-wrap: nowrap; gap: 6px; }
+  .notif-btn { padding: 6px 10px; min-height: 36px; font-size: 13px; }
+  .user-meta,
+  #header-leave-badge { display: none !important; }
+  #btn-open-profile {
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+  }
+  .user-avatar { width: 36px; height: 36px; }
+  .top-header .btn-logout { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+}
+
+/* 모바일: 대시보드 요약 카드는 1열 고정 (auto-fit 규칙보다 우선) */
+@media (max-width: 768px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
 }

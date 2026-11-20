@@ -317,7 +317,7 @@ const App = {
       if (e.target.closest(".nav-item, .sidebar-brand")) setMenu(false);
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
-    window.addEventListener("resize", () => { if (window.innerWidth > 768) setMenu(false); });
+    window.addEventListener("resize", () => { if (window.innerWidth > 1024) setMenu(false); });
 
     // 표(list-table)를 모바일 카드로 보여주기 위해 셀에 라벨을 자동 부여 (화면 갱신 때마다 실행)
     const pageEl = document.getElementById("page-content");

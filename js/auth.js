@@ -224,6 +224,141 @@ const Auth = {
     }
   },
 
+  // 관리자 전용: 현재 로그인한 관리자 세션(SafeAuthStore)을 덮어쓰지 않고 신규 임직원 계정 직접 생성 + 즉시 APPROVED 등록
+  async adminCreateUser({ email, password, name, dept, position, role = "USER", annualTotal = 15 }) {
+    try {
+      const cleanEmail = (email || "").trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+        throw new Error("⚠️ 이메일 주소 형식이 올바르지 않습니다. (예: user@company.com)");
+      }
+      if (!password || String(password).length < 6) {
+        throw new Error("⚠️ 임시 비밀번호는 최소 6자리 이상으로 입력해 주세요.");
+      }
+      if (!(name || "").trim() || !(dept || "").trim() || !(position || "").trim()) {
+        throw new Error("⚠️ 이름, 부서, 직급을 모두 입력해 주세요.");
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(this.translateSignupError(data, res.status));
+      }
+
+      const identities = data?.user?.identities ?? data?.identities;
+      if (Array.isArray(identities) && identities.length === 0) {
+        throw new Error("⚠️ 이미 가입된 이메일입니다. 기존 목록에서 승인 상태를 확인하거나 다른 이메일을 사용해 주세요.");
+      }
+
+      const newUserToken = data.access_token || data?.session?.access_token;
+      const newUserId = data.user ? data.user.id : data.id;
+      if (!newUserId) {
+        throw new Error("⚠️ 계정 ID를 확인할 수 없습니다. Supabase Auth 설정(Confirm email 비활성화 여부)을 확인해 주세요.");
+      }
+
+      const isMasterAdmin = (cleanEmail.toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
+      const finalRole = isMasterAdmin ? "ADMIN" : (role || "USER");
+      const totalDays = Number.isFinite(Number(annualTotal)) ? Number(annualTotal) : 15;
+
+      const profileRow = {
+        id: newUserId,
+        email: cleanEmail,
+        name: name.trim(),
+        dept: dept.trim(),
+        position: position.trim(),
+        role: finalRole,
+        approval_status: "APPROVED",
+        annual_total: totalDays,
+        annual_used: 0
+      };
+
+      // 신규 계정의 토큰(본인 row INSERT 권한)을 우선 사용하고, 없을 경우 관리자 토큰으로 폴백
+      const authToken = newUserToken || this.getToken() || SUPABASE_ANON_KEY;
+      let profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=representation"
+        },
+        body: JSON.stringify(profileRow)
+      });
+
+      // 만약 신규 토큰으로 실패했고 관리자 토큰이 별도로 존재하면 관리자 토큰으로 1회 재시도
+      if (!profRes.ok && newUserToken && this.getToken() && newUserToken !== this.getToken()) {
+        profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${this.getToken()}`,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=representation"
+          },
+          body: JSON.stringify(profileRow)
+        });
+      }
+
+      if (!profRes.ok) {
+        const profErr = await profRes.json().catch(() => ({}));
+        const errMsg = profErr.message || profErr.msg || profErr.details || profErr.error || profRes.statusText || "알 수 없는 오류";
+        throw new Error(`⚠️ 직원 프로필 저장에 실패했습니다 (상태코드 ${profRes.status}: ${errMsg}).`);
+      }
+
+      return {
+        success: true,
+        user: this.mapProfileToUser(profileRow),
+        email: cleanEmail,
+        tempPassword: String(password)
+      };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  // 로그인한 직원 본인 비밀번호 변경 (PUT /auth/v1/user)
+  async changePassword(newPassword) {
+    try {
+      if (!newPassword || String(newPassword).length < 6) {
+        throw new Error("⚠️ 새 비밀번호는 최소 6자리 이상으로 입력해 주세요.");
+      }
+      await this.refreshSessionIfNeeded();
+      const token = this.getToken();
+      if (!token) {
+        throw new Error("⚠️ 로그인 세션이 만료되었습니다. 다시 로그인한 후 시도해 주세요.");
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: "PUT",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ password: String(newPassword) })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const raw = [data?.msg, data?.message, data?.error_description, data?.error, data?.code, data?.error_code]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (raw.includes("same_password") || raw.includes("different from the old")) {
+          throw new Error("⚠️ 기존 비밀번호와 동일한 비밀번호입니다. 다른 비밀번호를 입력해 주세요.");
+        }
+        if (raw.includes("password") && (raw.includes("at least") || raw.includes("short") || raw.includes("weak") || raw.includes("6"))) {
+          throw new Error("⚠️ 새 비밀번호는 최소 6자리 이상이어야 합니다.");
+        }
+        throw new Error(data?.msg || data?.message || `⚠️ 비밀번호 변경에 실패했습니다 (코드: ${res.status}).`);
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
   async login(email, password, keepLogin = false) {
     try {
       const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {

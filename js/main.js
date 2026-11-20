@@ -190,6 +190,9 @@ const App = {
           return;
         }
         errEl.classList.add("hidden");
+        // 보안: 로그인 성공 직후 비밀번호 입력창 즉시 초기화
+        const pwInput = document.getElementById("login-pw");
+        if (pwInput) pwInput.value = "";
         // 모바일에서 지연 없이 즉시 메인 화면으로 먼저 진입!
         this.enterApp(res.user, "dashboard");
         this.showToast(`환영합니다, ${res.user.name} ${res.user.position}님!`);
@@ -228,6 +231,8 @@ const App = {
       }
 
       await StorageDB.syncFromCloud();
+      const signupForm = document.getElementById("signup-form");
+      if (signupForm && typeof signupForm.reset === "function") signupForm.reset();
       this.showToast("마스터 관리자 계정으로 가입 및 로그인되었습니다!");
       this.enterApp(res.user, "dashboard");
     });
@@ -372,6 +377,47 @@ const App = {
   showLoginScreen() {
     document.getElementById("login-screen").classList.remove("hidden");
     document.getElementById("app-layout").classList.add("hidden");
+
+    // 1) 비밀번호 입력창 무조건 초기화 (이전 입력값 잔류 및 자동 채움 방지)
+    const pwInput = document.getElementById("login-pw");
+    if (pwInput) {
+      pwInput.value = "";
+      pwInput.defaultValue = "";
+    }
+
+    // 2) 아이디 저장 여부에 따라 이메일 입력창 동기화 (미저장 시 빈칸으로 초기화)
+    const savedEmail = (typeof Auth !== "undefined" && typeof Auth.getSavedEmail === "function")
+      ? Auth.getSavedEmail()
+      : "";
+    const emailInput = document.getElementById("login-email");
+    const saveEmailChk = document.getElementById("chk-save-email");
+    const keepLoginChk = document.getElementById("chk-keep-login");
+    if (emailInput) {
+      emailInput.value = savedEmail || "";
+      emailInput.defaultValue = savedEmail || "";
+    }
+    if (saveEmailChk) saveEmailChk.checked = Boolean(savedEmail);
+    if (keepLoginChk) keepLoginChk.checked = false;
+
+    // 3) 회원가입 폼·에러 메시지 초기화 및 로그인 탭으로 복귀
+    const signupForm = document.getElementById("signup-form");
+    if (signupForm && typeof signupForm.reset === "function") signupForm.reset();
+    const signupPw = document.getElementById("signup-pw");
+    if (signupPw) signupPw.value = "";
+    const errEl = document.getElementById("auth-error");
+    if (errEl) {
+      errEl.textContent = "";
+      errEl.classList.add("hidden");
+    }
+    if (typeof SwitchAuthTab === "function") {
+      SwitchAuthTab("login");
+    }
+
+    // 브라우저가 화면 전환 직후 비밀번호를 다시 자동 채움(autofill)하는 경우까지 방어
+    setTimeout(() => {
+      const pw = document.getElementById("login-pw");
+      if (pw) pw.value = "";
+    }, 0);
   },
 
   enterApp(user, initialPage = "dashboard") {
@@ -444,6 +490,11 @@ const App = {
     document.getElementById("prof-dept").value = myRow.dept || "";
     document.getElementById("prof-phone").value = myRow.phone || "";
 
+    const newPwEl = document.getElementById("prof-new-pw");
+    const newPwConfirmEl = document.getElementById("prof-new-pw-confirm");
+    if (newPwEl) newPwEl.value = "";
+    if (newPwConfirmEl) newPwConfirmEl.value = "";
+
     document.getElementById("profile-modal").classList.remove("hidden");
   },
 
@@ -459,12 +510,119 @@ const App = {
 
     try {
       await StorageDB.updateMyProfile(user.id, { name, position, dept, phone });
+      const db = StorageDB.getData();
+      const latestMe = (db.users || []).find(u => String(u.id) === String(user.id)) || { ...user, name, position, dept, phone };
+      Auth.saveCurrentUser(latestMe);
+      this.updateHeaderUserInfo(latestMe);
       document.getElementById("profile-modal").classList.add("hidden");
       this.showToast("내 프로필 정보가 수정되었습니다.");
-      this.navigateTo(this.currentPage);
+      this.navigateTo(this.currentPage, false);
     } catch (err) {
       alert(err.message);
     }
+  },
+
+  // 내 정보 모달: 직원 본인 비밀번호 변경
+  async changeMyPassword() {
+    const pwEl = document.getElementById("prof-new-pw");
+    const confirmEl = document.getElementById("prof-new-pw-confirm");
+    const newPw = (pwEl ? pwEl.value : "").trim();
+    const confirmPw = (confirmEl ? confirmEl.value : "").trim();
+
+    if (!newPw || newPw.length < 6) {
+      return alert("⚠️ 새 비밀번호는 최소 6자리 이상으로 입력해 주세요.");
+    }
+    if (newPw !== confirmPw) {
+      return alert("⚠️ 새 비밀번호와 새 비밀번호 확인이 일치하지 않습니다.");
+    }
+
+    const btn = document.getElementById("btn-change-my-pw");
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "변경 중...";
+      }
+      const res = await Auth.changePassword(newPw);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "비밀번호 변경하기";
+      }
+      if (!res.success) {
+        return alert(res.message);
+      }
+      if (pwEl) pwEl.value = "";
+      if (confirmEl) confirmEl.value = "";
+      this.showToast("🔒 비밀번호가 성공적으로 변경되었습니다!");
+    } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "비밀번호 변경하기";
+      }
+      alert(err.message);
+    }
+  },
+
+  // ===================================================================
+  // 작성자·신청자 최신 프로필 실시간 매핑 헬퍼 (DB 과거 행은 수정하지 않고 렌더링 시점에만 매핑)
+  // ===================================================================
+  resolvePostAuthor(post, users) {
+    const list = Array.isArray(users) ? users : (StorageDB.getData().users || []);
+    const uid = post?.authorId || post?.author_id || post?.user_id || post?.userId;
+    if (uid) {
+      const matched = list.find(u => String(u.id) === String(uid));
+      if (matched) {
+        const name = matched.name || "-";
+        const position = matched.position || "";
+        const dept = matched.dept || post?.dept || "";
+        return {
+          id: matched.id,
+          name,
+          position,
+          dept,
+          label: `${name}${position ? " " + position : ""}`.trim(),
+          matched: true
+        };
+      }
+    }
+    const fallbackLabel = post?.author || post?.author_name || "-";
+    return {
+      id: uid || null,
+      name: fallbackLabel,
+      position: "",
+      dept: post?.dept || "",
+      label: fallbackLabel,
+      matched: false
+    };
+  },
+
+  resolveLeaveActors(doc, users) {
+    const list = Array.isArray(users) ? users : (StorageDB.getData().users || []);
+    const appUid = doc?.applicantId || doc?.applicant_id || doc?.user_id;
+    const ap1Uid = doc?.approver1Id || doc?.approver1_id;
+    const ap2Uid = doc?.approver2Id || doc?.approver2_id;
+
+    const appUser = appUid ? list.find(u => String(u.id) === String(appUid)) : null;
+    const ap1User = ap1Uid ? list.find(u => String(u.id) === String(ap1Uid)) : null;
+    const ap2User = ap2Uid ? list.find(u => String(u.id) === String(ap2Uid)) : null;
+
+    const applicantName = appUser ? (appUser.name || doc?.applicantName || "-") : (doc?.applicantName || doc?.applicant_name || "-");
+    const dept = appUser ? (appUser.dept || doc?.dept || "-") : (doc?.dept || "-");
+    const position = appUser ? (appUser.position || doc?.position || "") : (doc?.position || "");
+
+    const approver1Name = ap1User
+      ? `${ap1User.name} ${ap1User.position || ""}`.trim()
+      : (doc?.approver1Name || doc?.approver1_name || "-");
+    const approver2Name = ap2User
+      ? `${ap2User.name} ${ap2User.position || ""}`.trim()
+      : (doc?.approver2Name || doc?.approver2_name || "-");
+
+    return {
+      applicantName,
+      dept,
+      position,
+      approver1Name,
+      approver2Name
+    };
   },
 
   updateNotificationBadge(notifs) {
@@ -764,18 +922,19 @@ const App = {
       }).join("");
 
       const barsHtml = segments.map(seg => {
+        const actor = this.resolveLeaveActors(seg.doc);
         const leftPct = (seg.startCol * 100 / 7).toFixed(4);
         const widthPct = (seg.span * 100 / 7).toFixed(4);
         const topPx = 30 + seg.lane * 25;
-        const bgColor = getColorForUser(seg.doc.applicantName);
+        const bgColor = getColorForUser(actor.applicantName);
         const radiusLeft = seg.isContinuedLeft ? "0" : "5px";
         const radiusRight = seg.isContinuedRight ? "0" : "5px";
 
         return `
           <div class="cal-event-bar"
-               title="${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
+               title="${actor.applicantName} ${actor.position} (${actor.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
                style="--lane:${seg.lane}; --left-pct:${leftPct}; --width-pct:${widthPct}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
-            <span class="bar-name">${seg.doc.applicantName}</span><span class="bar-extra"> ${seg.doc.position} (${seg.doc.leaveType})</span>
+            <span class="bar-name">${actor.applicantName}</span><span class="bar-extra"> ${actor.position} (${seg.doc.leaveType})</span>
           </div>
         `;
       }).join("");
@@ -815,13 +974,14 @@ const App = {
         ${monthLeaves.length === 0
           ? `<div class="cal-agenda-empty">이번 달 승인된 휴가가 없습니다.</div>`
           : monthLeaves.map(lv => {
+              const actor = this.resolveLeaveActors(lv);
               const onLeaveToday = lv.startDate <= todayStr && todayStr <= lv.endDate;
               const period = lv.startDate === lv.endDate ? fmtMD(lv.startDate) : `${fmtMD(lv.startDate)} ~ ${fmtMD(lv.endDate)}`;
               return `
-                <div class="cal-agenda-item" style="border-left-color:${getColorForUser(lv.applicantName)};">
+                <div class="cal-agenda-item" style="border-left-color:${getColorForUser(actor.applicantName)};">
                   <div class="cal-agenda-top">
-                    <strong>${lv.applicantName} ${lv.position || ""}</strong>
-                    <span class="cal-agenda-dept">${lv.dept || ""}</span>
+                    <strong>${actor.applicantName} ${actor.position || ""}</strong>
+                    <span class="cal-agenda-dept">${actor.dept || ""}</span>
                     ${onLeaveToday ? `<span class="status-badge status-APPROVED">오늘 휴가중</span>` : ""}
                   </div>
                   <div class="cal-agenda-sub">${lv.leaveType} · ${period} · 실차감 ${lv.days}일</div>
@@ -868,6 +1028,12 @@ const App = {
 
     // 1. 전자결재 및 휴가 신청 (휴가 수정 및 취소/연차복구 기능 포함)
     if (pageKey === "approval") {
+      if (this.selectedApprover1 && this.selectedApprover1.id) {
+        this.selectedApprover1 = (db.users || []).find(u => String(u.id) === String(this.selectedApprover1.id)) || this.selectedApprover1;
+      }
+      if (this.selectedApprover2 && this.selectedApprover2.id) {
+        this.selectedApprover2 = (db.users || []).find(u => String(u.id) === String(this.selectedApprover2.id)) || this.selectedApprover2;
+      }
       const ap1Text = this.selectedApprover1 ? `${this.selectedApprover1.name} ${this.selectedApprover1.position || ""}` : "미지정";
       const ap2Text = this.selectedApprover2 ? `${this.selectedApprover2.name} ${this.selectedApprover2.position || ""}` : "미지정";
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -876,7 +1042,7 @@ const App = {
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%); border:1px solid #bfdbfe;">
           <div class="summary-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <h4 style="color:#1e3a8a; margin:0;">🌴 ${user.name} ${user.position}님의 연차 현황 및 실시간 차감 계산</h4>
+            <h4 style="color:#1e3a8a; margin:0;">🌴 ${myProfile.name} ${myProfile.position}님의 연차 현황 및 실시간 차감 계산</h4>
             <span style="font-size:12px; color:#1d4ed8; font-weight:600;">✔ 주말(토·일) 및 법정공휴일·대체공휴일 자동 제외</span>
           </div>
           <div class="leave-summary-grid" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; text-align:center;">
@@ -952,6 +1118,7 @@ const App = {
             <tbody>
               ${(db.leaveRequests || []).length === 0 ? `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">조회된 휴가 신청 내역이 없습니다.</td></tr>` : ""}
               ${(db.leaveRequests || []).map(doc => {
+                const actor = this.resolveLeaveActors(doc, db.users);
                 const isTurnStep1 = (doc.status === "PENDING_1" || doc.status === "PENDING") && doc.approver1Id === user.id;
                 const isTurnStep2 = (doc.status === "PENDING_2" || doc.status === "IN_PROGRESS") && doc.approver2Id === user.id;
                 const isMyDoc = doc.applicantId === user.id;
@@ -960,10 +1127,10 @@ const App = {
 
                 return `
                   <tr>
-                    <td><strong>${doc.applicantName}</strong><br/><span style="font-size:12px; color:#64748b;">${doc.dept} · ${doc.position}</span></td>
+                    <td><strong>${actor.applicantName}</strong><br/><span style="font-size:12px; color:#64748b;">${actor.dept} · ${actor.position}</span></td>
                     <td><strong>${doc.leaveType}</strong> (${doc.days}일 차감)<br/><span style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</span></td>
-                    <td>${doc.approver1Name || "-"}<br/><span style="font-size:11px;">${doc.approver1Status === "APPROVED" ? "✅ 1차승인" : doc.approver1Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
-                    <td>${doc.approver2Name || "-"}<br/><span style="font-size:11px;">${doc.approver2Status === "APPROVED" ? "✅ 최종승인" : doc.approver2Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
+                    <td>${actor.approver1Name || "-"}<br/><span style="font-size:11px;">${doc.approver1Status === "APPROVED" ? "✅ 1차승인" : doc.approver1Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
+                    <td>${actor.approver2Name || "-"}<br/><span style="font-size:11px;">${doc.approver2Status === "APPROVED" ? "✅ 최종승인" : doc.approver2Status === "REJECTED" ? "❌ 반려" : "⏳ 대기"}</span></td>
                     <td><span class="status-badge status-${doc.status}">${this.getLeaveStatusLabel(doc.status)}</span></td>
                     <td>
                       <div style="display:flex; gap:4px; flex-wrap:wrap;">
@@ -1142,6 +1309,14 @@ const App = {
       const customEntries = Object.entries(customHolidays).sort((a, b) => a[0].localeCompare(b[0]));
 
       container.innerHTML = `
+        <div class="card" style="margin-bottom:18px; border-left:4px solid #059669; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h4 style="margin-bottom:4px;">➕ 임직원 계정 직접 등록 및 인사 정보 관리</h4>
+            <p style="font-size:12.5px; color:#64748b; margin:0;">신입·기존 임직원 계정을 즉시 승인(APPROVED) 상태로 생성하거나, 아래 직원 목록에서 [정보 수정]을 눌러 인사 정보를 변경할 수 있습니다.</p>
+          </div>
+          <button type="button" class="btn-primary" style="background:#059669;" onclick="App.openAdminCreateUserModal()">+ 임직원 직접 등록</button>
+        </div>
+
         <div class="card" style="margin-bottom:18px; border-left:4px solid #f59e0b;">
           <div class="card-header">
             <h4>⏳ 신규 가입 승인 대기 및 반려 계정 관리 (대기 ${pendingUsers.length}명 / 반려 ${rejectedUsers.length}명)</h4>
@@ -1168,6 +1343,7 @@ const App = {
                           <button class="btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">
                             ${isRejected ? "🔄 승인으로 복구" : "✅ 사용 승인"}
                           </button>
+                          <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff;" onclick="App.openAdminEditUserModal('${u.id}')">✏️ 정보 수정</button>
                           ${!isRejected ? `
                             <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 가입 반려</button>
                           ` : `
@@ -1249,6 +1425,7 @@ const App = {
                     <td>
                       <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                         <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="App.saveUserLeave('${u.id}')">연차 저장</button>
+                        <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:600;" onclick="App.openAdminEditUserModal('${u.id}')">✏️ 정보 수정</button>
                         ${u.approvalStatus === "REJECTED" ? `
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#047857; border-color:#a7f3d0; background:#ecfdf5;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">🔄 승인 복구</button>
                         ` : u.approvalStatus === "PENDING" ? `
@@ -1320,7 +1497,7 @@ const App = {
       this.attachNames.b = "";
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
-          <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${user.name} ${user.position})</h4></div>
+          <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${myProfile.name} ${myProfile.position})</h4></div>
           <div class="form-row" style="display:flex; gap:8px; margin-bottom:8px;">
             <select id="b-cat" style="padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
               <option value="자유 게시판">자유 게시판</option>
@@ -1334,13 +1511,17 @@ const App = {
           ${this.attachWidgetHtml("b")}
         </div>
         <div class="card">
-          <div class="card-header"><h4>💬 전체 게시글 목록 (${(db.boardPosts || []).length}건) · 제목을 클릭하면 상세 내용을 볼 수 있습니다</h4></div>
+          <div class="card-header"><h4>💬 전체 게시글 목록 (${(db.boardPosts || []).length}건) · [관리자 승인 필요]</h4></div>
           <table class="list-table">
             <thead><tr><th>분류</th><th>제목 / 내용</th><th>작성자</th><th>작성일</th><th>관리</th></tr></thead>
             <tbody>
               ${(db.boardPosts || []).length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">등록된 게시글이 없습니다.</td></tr>` : ""}
               ${(db.boardPosts || []).map((b, idx) => {
-                const canManage = isAdmin || (b.author || "").includes(user.name);
+                const authorInfo = this.resolvePostAuthor(b, db.users);
+                const isOwnPost = (b.authorId && String(b.authorId) === String(user.id))
+                  || (b.author || "").includes(user.name)
+                  || (authorInfo.label || "").includes(myProfile.name);
+                const canManage = isAdmin || isOwnPost;
                 return `
                   <tr>
                     <td><span class="status-badge status-IN_PROGRESS">${b.category}</span></td>
@@ -1348,7 +1529,7 @@ const App = {
                       <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${b.title}</strong><br/>
                       <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(b.content)}</span>
                     </td>
-                    <td>${b.author}</td>
+                    <td>${authorInfo.label}</td>
                     <td>${b.date}</td>
                     <td>
                       ${canManage ? `
@@ -1373,8 +1554,9 @@ const App = {
           category,
           title,
           content,
-          author: `${user.name} ${user.position}`,
-          dept: user.dept,
+          authorId: user.id,
+          author: `${myProfile.name} ${myProfile.position}`.trim(),
+          dept: myProfile.dept,
           date: new Date().toISOString().slice(0, 10)
         });
         StorageDB.saveData(db);
@@ -1418,14 +1600,16 @@ const App = {
             </thead>
             <tbody>
               ${(db.notices || []).length === 0 ? `<tr><td colspan="${canEditNotice ? 5 : 4}" style="text-align:center; padding:20px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>` : ""}
-              ${(db.notices || []).map((n, idx) => `
+              ${(db.notices || []).map((n, idx) => {
+                const authorInfo = this.resolvePostAuthor(n, db.users);
+                return `
                 <tr>
                   <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
                   <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
                     <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
                     <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(n.content)}</span>
                   </td>
-                  <td>${n.author}</td>
+                  <td>${authorInfo.label}</td>
                   <td>${n.date}</td>
                   ${canEditNotice ? `
                     <td>
@@ -1434,7 +1618,7 @@ const App = {
                     </td>
                   ` : ""}
                 </tr>
-              `).join("")}
+              `;}).join("")}
             </tbody>
           </table>
         </div>
@@ -1451,7 +1635,9 @@ const App = {
             title,
             content,
             pinned,
-            author: `${user.name} ${user.position}`,
+            authorId: user.id,
+            author: `${myProfile.name} ${myProfile.position}`.trim(),
+            dept: myProfile.dept,
             date: new Date().toISOString().slice(0, 10)
           });
           StorageDB.saveData(db);
@@ -1575,10 +1761,237 @@ const App = {
     const usedVal = document.getElementById(`used-${targetUserId}`).value;
     try {
       await StorageDB.updateSingleUserLeave(targetUserId, totalVal, usedVal);
+      const currentUser = Auth.getCurrentUser();
+      if (currentUser && String(currentUser.id) === String(targetUserId)) {
+        const latest = (StorageDB.getData().users || []).find(u => String(u.id) === String(targetUserId));
+        if (latest) {
+          Auth.saveCurrentUser(latest);
+          this.updateHeaderUserInfo(latest);
+        }
+      }
       this.showToast("✅ 직원의 연차 정보가 저장되었습니다.");
-      this.navigateTo("admin");
+      this.navigateTo("admin", false);
     } catch (err) {
       alert(err.message);
+    }
+  },
+
+  // ===================================================================
+  // 관리자 전용: 기존 임직원 인사 정보 직접 수정 모달 제어
+  // ===================================================================
+  openAdminEditUserModal(targetUserId) {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    const db = StorageDB.getData();
+    const target = (db.users || []).find(u => String(u.id) === String(targetUserId));
+    if (!target) return alert("대상 직원 정보를 찾을 수 없습니다.");
+
+    document.getElementById("adm-edit-id").value = target.id;
+    document.getElementById("adm-edit-email").value = target.email || "";
+    document.getElementById("adm-edit-name").value = target.name || "";
+    document.getElementById("adm-edit-pos").value = target.position || "";
+    document.getElementById("adm-edit-dept").value = target.dept || "";
+    document.getElementById("adm-edit-phone").value = target.phone || "";
+    document.getElementById("adm-edit-annual-total").value = Number(target.annualTotal ?? 15);
+
+    const roleSelect = document.getElementById("adm-edit-role");
+    const roleNotice = document.getElementById("adm-edit-role-notice");
+    const isSelfAdmin = String(target.id) === String(currentUser.id)
+      || (target.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
+
+    roleSelect.value = isSelfAdmin ? "ADMIN" : (target.role || "USER");
+    roleSelect.disabled = isSelfAdmin;
+    if (roleNotice) roleNotice.classList.toggle("hidden", !isSelfAdmin);
+
+    document.getElementById("admin-edit-user-modal").classList.remove("hidden");
+  },
+
+  closeAdminEditUserModal() {
+    const modal = document.getElementById("admin-edit-user-modal");
+    if (modal) modal.classList.add("hidden");
+  },
+
+  async saveAdminEditUser() {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    const targetId = document.getElementById("adm-edit-id").value;
+    const emailVal = (document.getElementById("adm-edit-email").value || "").trim();
+    const name = document.getElementById("adm-edit-name").value.trim();
+    const position = document.getElementById("adm-edit-pos").value.trim();
+    const dept = document.getElementById("adm-edit-dept").value.trim();
+    const phone = document.getElementById("adm-edit-phone").value.trim();
+    let role = document.getElementById("adm-edit-role").value;
+    const annualTotal = Number(document.getElementById("adm-edit-annual-total").value);
+
+    if (!name || !position || !dept) {
+      return alert("⚠️ 이름, 부서, 직급을 모두 입력해 주세요.");
+    }
+    if (!Number.isFinite(annualTotal) || annualTotal < 0) {
+      return alert("⚠️ 총 부여 연차는 0 이상의 숫자로 입력해 주세요.");
+    }
+
+    const isSelfAdmin = String(targetId) === String(currentUser.id)
+      || emailVal.toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
+    if (isSelfAdmin && role !== "ADMIN") {
+      role = "ADMIN";
+    }
+
+    try {
+      await StorageDB.adminUpdateUserProfile(targetId, {
+        name,
+        position,
+        dept,
+        phone,
+        role,
+        annual_total: annualTotal
+      });
+
+      const db = StorageDB.getData();
+      const updatedUser = (db.users || []).find(u => String(u.id) === String(targetId));
+
+      // 수정 대상이 현재 로그인한 관리자 본인이면 세션과 상단 헤더 프로필 UI 즉시 갱신
+      if (String(targetId) === String(currentUser.id)) {
+        const baseMe = updatedUser || currentUser;
+        const nextMe = {
+          ...baseMe,
+          name,
+          position,
+          dept,
+          phone,
+          role: "ADMIN",
+          annualTotal
+        };
+        Auth.saveCurrentUser(nextMe);
+        this.updateHeaderUserInfo(nextMe);
+      }
+
+      this.closeAdminEditUserModal();
+      this.showToast(`✅ ${name} ${position}님의 인사 정보가 저장되었습니다.`);
+      this.navigateTo(this.currentPage || "admin", false);
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  // ===================================================================
+  // 관리자 전용: 신규 임직원 계정 직접 등록 모달 제어 (관리자 세션 유지)
+  // ===================================================================
+  lastCreatedAccountInfo: null,
+
+  openAdminCreateUserModal() {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    document.getElementById("adm-create-email").value = "";
+    document.getElementById("adm-create-name").value = "";
+    document.getElementById("adm-create-pos").value = "";
+    document.getElementById("adm-create-dept").value = "";
+    document.getElementById("adm-create-role").value = "USER";
+    document.getElementById("adm-create-annual-total").value = "15";
+    this.generateTempPassword();
+
+    this.lastCreatedAccountInfo = null;
+    const resBox = document.getElementById("adm-create-result-box");
+    if (resBox) resBox.classList.add("hidden");
+
+    document.getElementById("admin-create-user-modal").classList.remove("hidden");
+  },
+
+  closeAdminCreateUserModal() {
+    const modal = document.getElementById("admin-create-user-modal");
+    if (modal) modal.classList.add("hidden");
+  },
+
+  generateTempPassword() {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    let rand = "";
+    for (let i = 0; i < 6; i++) {
+      rand += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const pw = `tg${rand}!`;
+    const input = document.getElementById("adm-create-pw");
+    if (input) input.value = pw;
+    return pw;
+  },
+
+  async submitAdminCreateUser() {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    const email = document.getElementById("adm-create-email").value.trim();
+    const password = document.getElementById("adm-create-pw").value.trim();
+    const name = document.getElementById("adm-create-name").value.trim();
+    const position = document.getElementById("adm-create-pos").value.trim();
+    const dept = document.getElementById("adm-create-dept").value.trim();
+    const role = document.getElementById("adm-create-role").value;
+    const annualTotal = Number(document.getElementById("adm-create-annual-total").value);
+
+    const submitBtn = document.getElementById("btn-submit-adm-create");
+    try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "계정 생성 중...";
+      }
+
+      const res = await Auth.adminCreateUser({
+        email,
+        password,
+        name,
+        dept,
+        position,
+        role,
+        annualTotal
+      });
+
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "임직원 계정 생성하기";
+      }
+
+      if (!res.success) {
+        return alert(res.message);
+      }
+
+      await StorageDB.syncFromCloud();
+
+      const summaryText = `[탱고 그룹웨어 계정 안내]\n• 이름/소속: ${name} ${position} (${dept})\n• 로그인 이메일(ID): ${res.email}\n• 임시 비밀번호: ${res.tempPassword}\n※ 로그인 후 우측 상단 [내 프로필]에서 비밀번호를 변경해 주세요.`;
+      this.lastCreatedAccountInfo = summaryText;
+
+      const resBox = document.getElementById("adm-create-result-box");
+      const resText = document.getElementById("adm-create-result-text");
+      if (resText) resText.textContent = summaryText;
+      if (resBox) resBox.classList.remove("hidden");
+
+      this.showToast(`✅ ${name} ${position}님의 계정이 즉시 승인(APPROVED) 상태로 등록되었습니다!`);
+      this.navigateTo("admin", false);
+    } catch (err) {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "임직원 계정 생성하기";
+      }
+      alert(err.message);
+    }
+  },
+
+  async copyCreatedAccountInfo() {
+    const text = this.lastCreatedAccountInfo || document.getElementById("adm-create-result-text")?.textContent || "";
+    if (!text) return;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      this.showToast("📋 계정 안내 정보가 클립보드에 복사되었습니다!");
+    } catch (e) {
+      alert("복사에 실패했습니다. 화면의 텍스트를 직접 드래그해 복사해 주세요.");
     }
   },
 
@@ -1604,9 +2017,14 @@ const App = {
 
     this.activePostTarget = { type, idx };
     const isAdmin = Auth.isAdmin(user);
+    const authorInfo = this.resolvePostAuthor(item, db.users);
+    const myProfile = (db.users || []).find(u => u.id === user.id) || user;
+    const isOwnPost = (item.authorId && String(item.authorId) === String(user.id))
+      || (item.author || "").includes(user.name)
+      || (authorInfo.label || "").includes(myProfile.name);
     const canManage = type === "notice"
       ? (user && user.role === "ADMIN")
-      : (isAdmin || (item.author || "").includes(user.name));
+      : (isAdmin || isOwnPost);
 
     const viewArea = document.getElementById("post-view-area");
     const editArea = document.getElementById("post-edit-area");
@@ -1645,7 +2063,7 @@ const App = {
       if (editFile) editFile.value = "";
 
       const authorInput = document.getElementById("post-edit-author");
-      authorInput.value = item.author || "";
+      authorInput.value = authorInfo.label || item.author || "";
       // 관리자는 작성자명을 자유롭게 수정 가능, 일반 직원은 본인 이름 고정
       authorInput.disabled = !isAdmin;
       document.getElementById("btn-set-my-author").classList.toggle("hidden", !isAdmin);
@@ -1658,7 +2076,7 @@ const App = {
         ? (item.pinned ? '<span class="status-badge status-REJECTED">중요 공지</span>' : '<span class="status-badge status-IN_PROGRESS">일반 공지</span>')
         : `<span class="status-badge status-IN_PROGRESS">${item.category || "게시판"}</span>`;
 
-      document.getElementById("post-view-meta").textContent = `작성자: ${item.author || "-"} · 작성일: ${item.date || "-"}`;
+      document.getElementById("post-view-meta").textContent = `작성자: ${authorInfo.label || "-"} · 작성일: ${item.date || "-"}`;
       document.getElementById("post-view-title").textContent = item.title || "";
       const parsedView = this.parsePostContent(item.content);
       const viewContentEl = document.getElementById("post-view-content");
@@ -1702,7 +2120,9 @@ const App = {
   fillMyAuthorName() {
     const user = Auth.getCurrentUser();
     if (!user) return;
-    document.getElementById("post-edit-author").value = `${user.name} ${user.position}`;
+    const db = StorageDB.getData();
+    const myProfile = (db.users || []).find(u => u.id === user.id) || user;
+    document.getElementById("post-edit-author").value = `${myProfile.name} ${myProfile.position}`.trim();
   },
 
   savePostEdit() {
@@ -1717,8 +2137,15 @@ const App = {
     const content = this.buildPostContent(document.getElementById("post-edit-content").value, this.attach.e);
     if (!title) return alert("제목을 입력해 주세요.");
 
+    const prevAuthorInfo = this.resolvePostAuthor(list[idx], db.users);
     list[idx].title = title;
-    list[idx].author = author || list[idx].author;
+    list[idx].author = author || prevAuthorInfo.label || list[idx].author;
+    if (author && author !== prevAuthorInfo.label) {
+      const matchedUser = (db.users || []).find(u =>
+        `${u.name} ${u.position || ""}`.trim() === author || u.name === author
+      );
+      list[idx].authorId = matchedUser ? matchedUser.id : null;
+    }
     list[idx].content = content;
     if (type === "notice") {
       list[idx].pinned = document.getElementById("post-edit-pin").checked;

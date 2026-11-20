@@ -342,11 +342,37 @@ const StorageDB = {
   async updateMyProfile(userId, fields) {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
       method: "PATCH",
-      headers: this.getHeaders(true),
+      headers: { ...this.getHeaders(true), "Prefer": "return=representation" },
       body: JSON.stringify(fields)
     });
     if (!res.ok) throw new Error("내 정보 수정에 실패했습니다.");
     await this.syncFromCloud();
+  },
+
+  // 관리자 전용: 임직원 인사 정보(이름/부서/직급/연락처/권한/총연차) 직접 수정
+  async adminUpdateUserProfile(userId, fields) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
+      method: "PATCH",
+      headers: { ...this.getHeaders(true), "Prefer": "return=representation" },
+      body: JSON.stringify(fields)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`직원 정보 수정 실패 (${res.status}: ${err.message || err.msg || res.statusText})`);
+    }
+    const rows = await res.json().catch(() => []);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error("직원 정보가 수정되지 않았습니다. Supabase profiles 테이블의 관리자 UPDATE RLS 정책을 확인해 주세요.");
+    }
+    const localDb = this.getData();
+    if (Array.isArray(localDb.users) && typeof Auth !== "undefined" && typeof Auth.mapProfileToUser === "function") {
+      const mapped = Auth.mapProfileToUser(rows[0]);
+      const idx = localDb.users.findIndex(u => String(u.id) === String(userId));
+      if (idx !== -1) localDb.users[idx] = { ...localDb.users[idx], ...mapped };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localDb));
+    }
+    await this.syncFromCloud();
+    return rows[0];
   },
 
   async sendNotification(receiverId, message) {

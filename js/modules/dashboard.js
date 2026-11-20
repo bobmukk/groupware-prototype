@@ -86,14 +86,18 @@ const DashboardModule = {
             <tbody>
               ${recentLeaves.length === 0
                 ? `<tr><td colspan="4" class="f-empty" style="text-align:center; padding:18px; color:#94a3b8;">최근 결재 내역이 없습니다.</td></tr>`
-                : recentLeaves.map(doc => `
+                : recentLeaves.map(doc => {
+                  const actor = (typeof App !== "undefined" && typeof App.resolveLeaveActors === "function")
+                    ? App.resolveLeaveActors(doc, db.users)
+                    : { applicantName: doc.applicantName };
+                  return `
                   <tr style="cursor:pointer;" onclick="App.navigateTo('approval')">
-                    <td class="f-name"><strong>${doc.applicantName}</strong></td>
+                    <td class="f-name"><strong>${actor.applicantName}</strong></td>
                     <td class="f-type">${doc.leaveType} (${doc.days}일)</td>
                     <td class="f-period" style="font-size:12px; color:#64748b;">${doc.startDate} ~ ${doc.endDate}</td>
                     <td class="f-status"><span class="status-badge status-${doc.status}">${App.getLeaveStatusLabel(doc.status)}</span></td>
                   </tr>
-                `).join("")
+                `;}).join("")
               }
             </tbody>
           </table>
@@ -111,14 +115,18 @@ const DashboardModule = {
             <tbody>
               ${recentNotices.length === 0
                 ? `<tr><td colspan="4" class="f-empty" style="text-align:center; padding:18px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>`
-                : recentNotices.map(n => `
+                : recentNotices.map(n => {
+                  const authorInfo = (typeof App !== "undefined" && typeof App.resolvePostAuthor === "function")
+                    ? App.resolvePostAuthor(n, db.users)
+                    : { label: n.author };
+                  return `
                   <tr style="cursor:pointer;" onclick="App.navigateTo('notice')">
                     <td class="f-badge">${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">공지</span>'}</td>
                     <td class="f-title"><strong>${n.title}</strong></td>
-                    <td class="f-author">${n.author}</td>
+                    <td class="f-author">${authorInfo.label}</td>
                     <td class="f-date" style="font-size:12px; color:#64748b;">${n.date}</td>
                   </tr>
-                `).join("")
+                `;}).join("")
               }
             </tbody>
           </table>

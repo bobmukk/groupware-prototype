@@ -316,7 +316,11 @@ const App = {
     if (sidebarEl) sidebarEl.addEventListener("click", (e) => {
       if (e.target.closest(".nav-item, .sidebar-brand")) setMenu(false);
     });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      setMenu(false);
+      this.closeImageViewer();
+    });
     window.addEventListener("resize", () => { if (window.innerWidth > 1024) setMenu(false); });
 
     // 표(list-table)를 모바일 카드로 보여주기 위해 셀에 라벨을 자동 부여 (화면 갱신 때마다 실행)
@@ -328,10 +332,17 @@ const App = {
   },
 
   // 대시보드 피드 표(feed-table)를 제외한 모든 표에 data-label 부여 + 셀 내용 래핑 (변경이 없으면 아무 작업도 하지 않음)
+  // + 배지가 들어가는 열(구분/분류/상태)은 헤더·셀을 모두 가운데 정렬(col-badge)로 표시
   enhanceTables(root) {
+    const TAG_HEADS = ["구분", "분류"];
+    const STATUS_HEADS = ["상태", "현재 상태"];
     root.querySelectorAll("table.list-table:not(.feed-table)").forEach(table => {
       table.classList.add("stack-table");
       const heads = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+      const colClasses = heads.map(h => TAG_HEADS.includes(h) ? ["col-badge", "col-tag"] : STATUS_HEADS.includes(h) ? ["col-badge"] : []);
+      table.querySelectorAll("thead th").forEach((th, i) => {
+        if (colClasses[i] && colClasses[i].length) th.classList.add(...colClasses[i]);
+      });
       table.querySelectorAll("tbody tr").forEach(tr => {
         let col = 0;
         Array.from(tr.children).forEach(td => {
@@ -340,6 +351,7 @@ const App = {
             td.classList.add("td-wide");
           } else {
             if (heads[col] && !td.hasAttribute("data-label")) td.setAttribute("data-label", heads[col]);
+            if (colClasses[col] && colClasses[col].length) td.classList.add(...colClasses[col]);
             const first = td.firstElementChild;
             if (!(td.childNodes.length === 1 && first && first.classList.contains("td-val"))) {
               const wrap = document.createElement("div");
@@ -1264,6 +1276,7 @@ const App = {
     // 5. 사내 게시판 (클릭 상세보기 + 관리자 전체 수정/삭제)
     if (pageKey === "board") {
       const isAdmin = Auth.isAdmin(user);
+      this.attach.b = null;
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
           <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${user.name} ${user.position})</h4></div>
@@ -1277,6 +1290,7 @@ const App = {
             <button class="btn-primary" id="btn-save-board">게시글 등록</button>
           </div>
           <textarea id="b-content" rows="2" placeholder="내용을 입력하세요" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+          ${this.attachWidgetHtml("b")}
         </div>
         <div class="card">
           <div class="card-header"><h4>💬 전체 게시글 목록 (${(db.boardPosts || []).length}건) · 제목을 클릭하면 상세 내용을 볼 수 있습니다</h4></div>
@@ -1291,7 +1305,7 @@ const App = {
                     <td><span class="status-badge status-IN_PROGRESS">${b.category}</span></td>
                     <td style="cursor:pointer;" onclick="App.openPostModal('board', ${idx}, false)">
                       <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${b.title}</strong><br/>
-                      <span style="color:#64748b; font-size:12px;">${(b.content || "").slice(0, 60)}${(b.content || "").length > 60 ? "..." : ""}</span>
+                      <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(b.content)}</span>
                     </td>
                     <td>${b.author}</td>
                     <td>${b.date}</td>
@@ -1310,7 +1324,7 @@ const App = {
       `;
       document.getElementById("btn-save-board").onclick = () => {
         const title = document.getElementById("b-title").value.trim();
-        const content = document.getElementById("b-content").value.trim();
+        const content = this.buildPostContent(document.getElementById("b-content").value, this.attach.b);
         const category = document.getElementById("b-cat").value;
         if (!title) return alert("제목을 입력해 주세요.");
         db.boardPosts.unshift({
@@ -1332,6 +1346,7 @@ const App = {
     // 6. 회사 공지사항 (시스템 관리자 전용 등록/수정/삭제, 그 외 임직원은 열람 전용)
     if (pageKey === "notice") {
       const canEditNotice = user && user.role === "ADMIN";
+      this.attach.n = null;
       container.innerHTML = `
         ${canEditNotice ? `
           <div class="card" style="margin-bottom:18px;">
@@ -1344,6 +1359,7 @@ const App = {
               <button class="btn-primary" id="btn-save-notice">공지 등록</button>
             </div>
             <textarea id="n-content" rows="2" placeholder="공지 상세 내용" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+            ${this.attachWidgetHtml("n")}
           </div>
         ` : ""}
         <div class="card">
@@ -1365,7 +1381,7 @@ const App = {
                   <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
                   <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
                     <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
-                    <span style="color:#64748b; font-size:12px;">${(n.content || "").slice(0, 60)}${(n.content || "").length > 60 ? "..." : ""}</span>
+                    <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(n.content)}</span>
                   </td>
                   <td>${n.author}</td>
                   <td>${n.date}</td>
@@ -1385,7 +1401,7 @@ const App = {
       if (canEditNotice) {
         document.getElementById("btn-save-notice").onclick = () => {
           const title = document.getElementById("n-title").value.trim();
-          const content = document.getElementById("n-content").value.trim();
+          const content = this.buildPostContent(document.getElementById("n-content").value, this.attach.n);
           const pinned = document.getElementById("n-pin").checked;
           if (!title) return alert("공지 제목을 입력해 주세요.");
           db.notices.unshift({
@@ -1520,7 +1536,13 @@ const App = {
       }
 
       document.getElementById("post-edit-title").value = item.title || "";
-      document.getElementById("post-edit-content").value = item.content || "";
+      const parsedEdit = this.parsePostContent(item.content);
+      document.getElementById("post-edit-content").value = parsedEdit.text;
+      // 기존 첨부 이미지는 미리보기로만 보여주고 Base64 원문은 노출하지 않음
+      this.attach.e = parsedEdit.image || null;
+      this.renderAttachPreview("e");
+      const editFile = document.getElementById("attach-e-file");
+      if (editFile) editFile.value = "";
 
       const authorInput = document.getElementById("post-edit-author");
       authorInput.value = item.author || "";
@@ -1538,7 +1560,17 @@ const App = {
 
       document.getElementById("post-view-meta").textContent = `작성자: ${item.author || "-"} · 작성일: ${item.date || "-"}`;
       document.getElementById("post-view-title").textContent = item.title || "";
-      document.getElementById("post-view-content").textContent = item.content || "(내용 없음)";
+      const parsedView = this.parsePostContent(item.content);
+      const viewContentEl = document.getElementById("post-view-content");
+      viewContentEl.textContent = parsedView.text || (parsedView.image ? "" : "(내용 없음)");
+      if (parsedView.image) {
+        const img = document.createElement("img");
+        img.src = parsedView.image;
+        img.alt = "첨부 이미지";
+        img.className = "post-image";
+        img.addEventListener("click", () => this.openImageViewer(parsedView.image));
+        viewContentEl.appendChild(img);
+      }
 
       document.getElementById("post-view-actions").innerHTML = `
         ${canManage ? `
@@ -1567,7 +1599,7 @@ const App = {
 
     const title = document.getElementById("post-edit-title").value.trim();
     const author = document.getElementById("post-edit-author").value.trim();
-    const content = document.getElementById("post-edit-content").value.trim();
+    const content = this.buildPostContent(document.getElementById("post-edit-content").value, this.attach.e);
     if (!title) return alert("제목을 입력해 주세요.");
 
     list[idx].title = title;
@@ -1600,7 +1632,146 @@ const App = {
 
   closePostModal() {
     this.activePostTarget = null;
+    this.attach.e = null;
     document.getElementById("post-modal").classList.add("hidden");
+  },
+
+  // ===================================================================
+  // 이미지 첨부 (공지사항 / 게시판)
+  // - 별도 테이블·Storage 없이 기존 content 문자열 끝에 "\n[IMG_DATA:<dataURL>]" 형태로 저장
+  // - 클라이언트에서 Canvas로 가로 최대 1000px, JPEG(품질 0.82)로 압축 후 Base64 변환
+  // - app_state 한 행에 모든 글이 들어가고 5초마다 동기화되므로, 이미지 1장당 용량 상한(약 300KB)을 둠
+  // ===================================================================
+  attach: { n: null, b: null, e: null },
+  IMG_MARK: "\n[IMG_DATA:",
+  IMG_MAX_WIDTH: 1000,
+  IMG_QUALITY: 0.82,
+  IMG_MAX_CHARS: 400000, // Base64 문자열 길이 상한 (원본 약 300KB)
+
+  // 저장된 content → { text, image } 분리 (목록/수정창에서 Base64 원문이 보이지 않도록)
+  parsePostContent(raw) {
+    const s = String(raw || "");
+    const start = s.indexOf(this.IMG_MARK);
+    if (start === -1) return { text: s.trim(), image: null };
+    const end = s.indexOf("]", start + this.IMG_MARK.length);
+    const dataUrl = s.slice(start + this.IMG_MARK.length, end === -1 ? undefined : end);
+    const text = (s.slice(0, start) + (end === -1 ? "" : s.slice(end + 1))).trim();
+    return { text, image: /^data:image\/[a-z+]+;base64,/i.test(dataUrl) ? dataUrl : null };
+  },
+
+  // 본문 텍스트 + 첨부 이미지 → 저장용 content 문자열
+  buildPostContent(text, image) {
+    const base = String(text || "").trim();
+    return image ? `${base}${this.IMG_MARK}${image}]` : base;
+  },
+
+  // 목록용 미리보기 (이미지는 문구로 대체하고 HTML 이스케이프)
+  postPreviewHtml(raw) {
+    const { text, image } = this.parsePostContent(raw);
+    const esc = (v) => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const short = text.length > 60 ? text.slice(0, 60) + "..." : text;
+    return `${esc(short)}${image ? ' <span class="img-chip">🖼 사진</span>' : ""}`;
+  },
+
+  // 첨부 입력 위젯 (n: 공지 작성, b: 게시판 작성, e: 수정 모달)
+  attachWidgetHtml(key) {
+    return `
+      <div class="attach-box">
+        <label class="attach-btn" for="attach-${key}-file">🖼 이미지 첨부</label>
+        <input type="file" id="attach-${key}-file" accept="image/*" hidden onchange="App.handleImageSelect('${key}', this)" />
+        <span class="attach-hint">가로 1000px 이하로 자동 압축됩니다</span>
+        <div id="attach-${key}-preview" class="attach-preview hidden"></div>
+      </div>
+    `;
+  },
+
+  renderAttachPreview(key) {
+    const box = document.getElementById(`attach-${key}-preview`);
+    if (!box) return;
+    const img = this.attach[key];
+    if (!img) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+    box.classList.remove("hidden");
+    box.innerHTML = `
+      <img src="${img}" alt="미리보기" />
+      <button type="button" class="attach-remove" onclick="App.removeAttach('${key}')">✕ 삭제</button>
+    `;
+  },
+
+  removeAttach(key) {
+    this.attach[key] = null;
+    const input = document.getElementById(`attach-${key}-file`);
+    if (input) input.value = "";
+    this.renderAttachPreview(key);
+  },
+
+  async handleImageSelect(key, input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      input.value = "";
+      return alert("이미지 파일만 첨부할 수 있습니다.");
+    }
+    try {
+      this.attach[key] = await this.compressImage(file);
+      this.renderAttachPreview(key);
+    } catch (err) {
+      input.value = "";
+      alert(err.message || "이미지를 처리하지 못했습니다.");
+    }
+  },
+
+  // Canvas 압축: 가로 최대 1000px, JPEG 0.82. 용량 상한을 넘으면 품질/폭을 단계적으로 낮춤
+  compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const steps = [
+          [this.IMG_MAX_WIDTH, this.IMG_QUALITY],
+          [this.IMG_MAX_WIDTH, 0.7],
+          [800, 0.7],
+          [640, 0.6]
+        ];
+        for (const [maxW, q] of steps) {
+          const scale = Math.min(1, maxW / img.width);
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#fff"; // 투명 PNG가 JPEG에서 검게 나오지 않도록 흰 배경
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", q);
+          if (dataUrl.length <= this.IMG_MAX_CHARS) return resolve(dataUrl);
+        }
+        reject(new Error("이미지 용량이 너무 큽니다. 더 작은 이미지를 선택해 주세요."));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("이미지를 읽을 수 없습니다. 다른 파일을 선택해 주세요."));
+      };
+      img.src = url;
+    });
+  },
+
+  // 이미지 원본 크기 보기 (확대 뷰어)
+  openImageViewer(src) {
+    const v = document.getElementById("image-viewer");
+    if (!v) return;
+    v.querySelector("img").src = src;
+    v.classList.remove("hidden");
+  },
+
+  closeImageViewer() {
+    const v = document.getElementById("image-viewer");
+    if (v) v.classList.add("hidden");
   },
 
   getNotificationTargetPage(message = "") {

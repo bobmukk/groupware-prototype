@@ -81,7 +81,7 @@ const DashboardModule = {
           </div>
           <table class="list-table feed-table">
             <thead>
-              <tr><th>신청자</th><th>구분 / 일수</th><th>기간</th><th>상태</th></tr>
+              <tr><th>신청자</th><th>구분 / 일수</th><th>기간</th><th class="col-badge">상태</th></tr>
             </thead>
             <tbody>
               ${recentLeaves.length === 0
@@ -106,7 +106,7 @@ const DashboardModule = {
           </div>
           <table class="list-table feed-table">
             <thead>
-              <tr><th>구분</th><th>제목</th><th>작성자</th><th>작성일</th></tr>
+              <tr><th class="col-badge col-tag">구분</th><th>제목</th><th>작성자</th><th>작성일</th></tr>
             </thead>
             <tbody>
               ${recentNotices.length === 0

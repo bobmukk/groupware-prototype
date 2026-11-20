@@ -1284,3 +1284,132 @@ body {
 @media (max-width: 768px) {
   .dashboard-grid { grid-template-columns: 1fr; }
 }
+
+/* =========================================================
+   8. 배지 열 정렬 보정 + 이미지 첨부 UI
+========================================================= */
+/* 배지가 들어가는 열(구분/분류/상태): 헤더(th)와 셀(td)을 같은 중심축에 놓기 위해
+   열 폭을 내용에 맞춰(shrink-fit) 고정하고, 가로·세로 모두 가운데 정렬 */
+.list-table th,
+.list-table td { vertical-align: middle; }
+.list-table th.col-badge,
+.list-table td.col-badge,
+.feed-table td.f-badge,
+.feed-table td.f-status {
+  text-align: center;
+  white-space: nowrap;
+  width: 1%;
+}
+.list-table th.col-tag,
+.list-table td.col-tag,
+.feed-table th.col-tag,
+.feed-table td.f-badge { min-width: 72px; }
+.feed-table td.f-status,
+.feed-table th.col-badge:not(.col-tag),
+.list-table th.col-badge:not(.col-tag),
+.list-table td.col-badge:not(.col-tag) { min-width: 96px; }
+/* 셀 안 배지는 항상 가운데 */
+.list-table td.col-badge .td-val,
+.feed-table td.f-badge,
+.feed-table td.f-status { display: table-cell; }
+.list-table td.col-badge .td-val { display: flex; justify-content: center; }
+
+@media (max-width: 768px) {
+  /* 모바일 카드/피드형에서는 기존 왼쪽 정렬 유지 */
+  .stack-table td.col-badge { text-align: left; width: auto; min-width: 0; }
+  .stack-table td.col-badge .td-val { justify-content: flex-start; }
+  .feed-table td.f-badge,
+  .feed-table td.f-status { text-align: left; width: auto; min-width: 0; display: block; }
+  .feed-table td.f-status { text-align: right; }
+}
+
+/* ---------- 이미지 첨부 (작성/수정 폼) ---------- */
+.attach-box {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed #93c5fd;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.attach-btn:hover { background: #dbeafe; }
+.attach-hint { font-size: 12px; color: var(--text-muted); }
+.attach-preview {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.attach-preview img {
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  object-fit: cover;
+}
+.attach-remove {
+  padding: 6px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.attach-remove:hover { background: #fef2f2; }
+
+/* ---------- 본문 이미지 / 목록 표시 / 확대 뷰어 ---------- */
+.post-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 14px;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+.img-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  margin-left: 4px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.88);
+  cursor: zoom-out;
+}
+.image-viewer.hidden { display: none !important; }
+.image-viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
+@media (max-width: 768px) {
+  .attach-preview { flex-direction: column; }
+  .attach-preview img { max-width: 100%; }
+}

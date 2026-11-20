@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>사내 그룹웨어 시스템</title>
-  <link rel="stylesheet" href="css/style.css?v=20261120-1" />
+  <link rel="stylesheet" href="css/style.css?v=20261120-2" />
 </head>
 <body>
   <!-- 1. 로그인 / 회원가입 화면 -->
@@ -98,7 +98,7 @@
           <button class="nav-item" data-page="leave-calendar">📅 휴가 캘린더</button>
         </div>
         <div class="nav-group">
-          <div class="nav-group-title">B. 회사 정보</div>
+          <div class="nav-group-title">B. 탱고인사이트</div>
           <button class="nav-item" data-page="organization">🏢 재직자 조직도</button>
           <button class="nav-item" data-page="notice">📢 회사 공지사항</button>
           <button class="nav-item" data-page="board">💬 사내 게시판</button>
@@ -226,7 +226,7 @@
           <span id="post-view-meta" style="font-size:12px; color:#64748b;"></span>
         </div>
         <h4 id="post-view-title" style="font-size:17px; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;"></h4>
-        <div id="post-view-content" style="min-height:110px; max-height:300px; overflow-y:auto; white-space:pre-wrap; font-size:13.5px; color:#334155; line-height:1.65; margin-bottom:16px;"></div>
+        <div id="post-view-content" style="min-height:110px; max-height:60vh; overflow-y:auto; white-space:pre-wrap; font-size:13.5px; color:#334155; line-height:1.65; margin-bottom:16px;"></div>
         <div class="modal-footer" id="post-view-actions"></div>
       </div>
 
@@ -264,6 +264,12 @@
         <div class="form-group" style="margin-bottom:14px;">
           <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">상세 내용</label>
           <textarea id="post-edit-content" rows="5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+          <div class="attach-box">
+            <label class="attach-btn" for="attach-e-file">🖼 이미지 첨부</label>
+            <input type="file" id="attach-e-file" accept="image/*" hidden onchange="App.handleImageSelect('e', this)" />
+            <span class="attach-hint">가로 1000px 이하로 자동 압축됩니다</span>
+            <div id="attach-e-preview" class="attach-preview hidden"></div>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -274,13 +280,18 @@
     </div>
   </div>
 
+  <!-- 첨부 이미지 확대 뷰어 -->
+  <div id="image-viewer" class="image-viewer hidden" onclick="App.closeImageViewer()">
+    <img alt="확대 이미지" />
+  </div>
+
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="js/data.js?v=20261120-1"></script>
-  <script src="js/storage.js?v=20261120-1"></script>
-  <script src="js/auth.js?v=20261120-1"></script>
-  <script src="js/modules/dashboard.js?v=20261120-1"></script>
-  <script src="js/main.js?v=20261120-1"></script>
+  <script src="js/data.js?v=20261120-2"></script>
+  <script src="js/storage.js?v=20261120-2"></script>
+  <script src="js/auth.js?v=20261120-2"></script>
+  <script src="js/modules/dashboard.js?v=20261120-2"></script>
+  <script src="js/main.js?v=20261120-2"></script>
   <script>
     function SwitchAuthTab(mode) {
       const loginForm = document.getElementById("login-form");

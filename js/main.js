@@ -329,6 +329,9 @@ const App = {
       new MutationObserver(() => this.enhanceTables(pageEl)).observe(pageEl, { childList: true, subtree: true });
       this.enhanceTables(pageEl);
     }
+
+    // 게시글/공지사항 상세 모달 헤더 마우스 드래그 이동 바인딩
+    this.initPostModalDrag();
   },
 
   // 대시보드 피드 표(feed-table)를 제외한 모든 표에 data-label 부여 + 셀 내용 래핑 (변경이 없으면 아무 작업도 하지 않음)
@@ -1611,9 +1614,10 @@ const App = {
     const toolsEl = document.getElementById("post-modal-tools");
     const imgModeGroup = document.getElementById("post-img-mode-group");
 
-    // 모달을 열 때마다 기본 크기('한 화면 맞춤', 기본 너비)로 초기화
+    // 모달을 열 때마다 기본 크기('한 화면 맞춤', 기본 너비) 및 정중앙 위치(0, 0)로 초기화
     this.setPostImageMode("fit");
     this.togglePostModalWide(false);
+    this.resetPostModalPosition();
 
     if (startInEditMode && canManage) {
       headerEl.textContent = type === "notice" ? "✏️ 공지사항 수정" : "✏️ 게시글 수정";
@@ -1745,6 +1749,7 @@ const App = {
     this.activePostTarget = null;
     this.attach.e = null;
     this.attachNames.e = "";
+    this.resetPostModalPosition();
     document.getElementById("post-modal").classList.add("hidden");
   },
 
@@ -1766,10 +1771,91 @@ const App = {
     if (!card) return;
     const nextWide = typeof forceWide === "boolean" ? forceWide : !card.classList.contains("wide");
     card.classList.toggle("wide", nextWide);
+    this.resetPostModalPosition();
     if (btn) {
       btn.classList.toggle("active", nextWide);
       btn.textContent = nextWide ? "↔ 기본 크기로" : "↔ 창 넓게 보기";
     }
+  },
+
+  // 상세 모달 드래그 상태 및 위치 초기화/바인딩 (모바일 768px 이하 비활성)
+  postModalDrag: { active: false, startX: 0, startY: 0, baseX: 0, baseY: 0, dx: 0, dy: 0 },
+
+  resetPostModalPosition() {
+    this.postModalDrag.active = false;
+    this.postModalDrag.dx = 0;
+    this.postModalDrag.dy = 0;
+    const card = document.querySelector("#post-modal .post-modal-card");
+    if (card) {
+      card.style.transform = "translate(0px, 0px)";
+      card.style.transition = "";
+    }
+  },
+
+  initPostModalDrag() {
+    const header = document.querySelector("#post-modal .post-modal-header-bar");
+    const card = document.querySelector("#post-modal .post-modal-card");
+    if (!header || !card) return;
+
+    header.addEventListener("mousedown", (e) => {
+      if (window.innerWidth <= 768 || e.button !== 0) return;
+      // 헤더 내부의 모든 버튼(크기 전환, 창 넓게 보기, 닫기 X 등) 클릭 시 드래그 시작 안 함
+      if (e.target && typeof e.target.closest === "function" && e.target.closest("button, a, input, select, textarea")) {
+        return;
+      }
+      this.postModalDrag.active = true;
+      this.postModalDrag.startX = e.clientX;
+      this.postModalDrag.startY = e.clientY;
+      this.postModalDrag.baseX = this.postModalDrag.dx || 0;
+      this.postModalDrag.baseY = this.postModalDrag.dy || 0;
+      card.style.transition = "none";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!this.postModalDrag.active) return;
+      if (window.innerWidth <= 768) {
+        this.resetPostModalPosition();
+        return;
+      }
+      const rawDx = this.postModalDrag.baseX + (e.clientX - this.postModalDrag.startX);
+      const rawDy = this.postModalDrag.baseY + (e.clientY - this.postModalDrag.startY);
+
+      const vw = window.innerWidth || 1200;
+      const vh = window.innerHeight || 800;
+      const w = card.offsetWidth || 680;
+      const h = card.offsetHeight || 420;
+
+      // 중앙 정렬 기준(dx=0, dy=0)에서의 기본 좌상단 좌표
+      const origLeft = (vw - w) / 2;
+      const origTop = (vh - h) / 2;
+      const margin = 12;
+
+      // 화면 밖으로 벗어나지 않도록 이동 범위 제한
+      const minDx = Math.min(0, -origLeft + margin);
+      const maxDx = Math.max(0, vw - origLeft - w - margin);
+      const minDy = Math.min(0, -origTop + margin);
+      const maxDy = Math.max(0, vh - origTop - Math.min(h, 120) - margin);
+
+      const dx = Math.round(Math.min(maxDx, Math.max(minDx, rawDx)));
+      const dy = Math.round(Math.min(maxDy, Math.max(minDy, rawDy)));
+
+      this.postModalDrag.dx = dx;
+      this.postModalDrag.dy = dy;
+      card.style.transform = `translate(${dx}px, ${dy}px)`;
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!this.postModalDrag.active) return;
+      this.postModalDrag.active = false;
+      card.style.transition = "";
+    });
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth <= 768 && (this.postModalDrag.dx !== 0 || this.postModalDrag.dy !== 0)) {
+        this.resetPostModalPosition();
+      }
+    });
   },
 
   // ===================================================================

@@ -241,12 +241,14 @@ const App = {
     document.querySelectorAll(".nav-item").forEach(btn => {
       btn.addEventListener("click", () => {
         this.editingLeaveDocId = null;
+        this.resetApproverSelection(false);
         this.navigateTo(btn.getAttribute("data-page"));
       });
     });
 
     document.getElementById("brand-home").addEventListener("click", () => {
       this.editingLeaveDocId = null;
+      this.resetApproverSelection(false);
       this.navigateTo("dashboard");
     });
 
@@ -378,6 +380,10 @@ const App = {
     document.getElementById("login-screen").classList.remove("hidden");
     document.getElementById("app-layout").classList.add("hidden");
 
+    // 0) 이전 계정의 결재선 선택 상태 및 휴가 수정 모드 완전 초기화
+    this.editingLeaveDocId = null;
+    this.resetApproverSelection(false);
+
     // 1) 비밀번호 입력창 무조건 초기화 (이전 입력값 잔류 및 자동 채움 방지)
     const pwInput = document.getElementById("login-pw");
     if (pwInput) {
@@ -421,6 +427,8 @@ const App = {
   },
 
   enterApp(user, initialPage = "dashboard") {
+    this.editingLeaveDocId = null;
+    this.resetApproverSelection(false);
     document.getElementById("login-screen").classList.add("hidden");
     document.getElementById("app-layout").classList.remove("hidden");
     this.updateHeaderUserInfo(user);
@@ -429,11 +437,44 @@ const App = {
     this.navigateTo(initialPage, true);
   },
 
+  // 사용자 프로필 기준 연차 자동 산정 요약 조회 헬퍼 (calculateUserLeaveSummary 연동)
+  getUserLeaveSummary(userOrProfile, db = null) {
+    const data = db || StorageDB.getData();
+    const myRow = (data.users || []).find(u => String(u.id) === String(userOrProfile?.id)) || userOrProfile || {};
+    if (typeof calculateUserLeaveSummary === "function") {
+      return calculateUserLeaveSummary(myRow, data.leaveRequests || []);
+    }
+    const total = Number(myRow.annualTotal ?? 15);
+    const used = Number(myRow.annualUsed ?? 0);
+    const curYear = new Date().getFullYear();
+    return {
+      phase: "REGULAR",
+      phaseLabel: "정규 연차",
+      totalLeave: total,
+      usedLeave: used,
+      remainingLeave: Number(Math.max(0, total - used).toFixed(1)),
+      periodStart: `${curYear}-01-01`,
+      periodEnd: `${curYear}-12-31`,
+      periodLabel: `${curYear}.01.01 ~ ${curYear}.12.31`,
+      baseAnnualLeave: total,
+      currentAdjustment: 0,
+      hireDate: myRow.hire_date || myRow.hireDate || null,
+      useMonthlyAccrual: true
+    };
+  },
+
+  getPhaseBadgeClass(phase) {
+    if (phase === "MONTHLY") return "status-PENDING";
+    if (phase === "PROPORTIONAL") return "status-IN_PROGRESS";
+    if (phase === "IMMEDIATE") return "status-APPROVED";
+    return "status-IN_PROGRESS";
+  },
+
   updateHeaderUserInfo(user) {
     if (!user) return;
-    const total = Number(user.annualTotal ?? 15);
-    const used = Number(user.annualUsed ?? 0);
-    const remain = Number((total - used).toFixed(1));
+    const summary = this.getUserLeaveSummary(user);
+    const total = summary.totalLeave;
+    const remain = summary.remainingLeave;
 
     document.getElementById("user-avatar").textContent = (user.name || "사").charAt(0);
     document.getElementById("user-name-display").textContent = `${user.name} ${user.position}`;
@@ -449,13 +490,13 @@ const App = {
       drawerUser.innerHTML = `
         <div class="du-name">${user.name} ${user.position}</div>
         <div class="du-sub">${user.dept} · ${Auth.getRoleLabel(user.role)}</div>
-        <div class="du-leave">🌴 잔여 연차 <strong>${remain}일</strong> (총 ${total}일)</div>
+        <div class="du-leave">🌴 잔여 연차 <strong>${remain}일</strong> (총 ${total}일 · ${summary.phaseLabel})</div>
       `;
     }
 
     const leaveBadge = document.getElementById("header-leave-badge");
     if (leaveBadge) {
-      leaveBadge.innerHTML = `🌴 잔여 연차: <strong>${remain}일</strong> <span style="font-weight:400; color:#64748b;">(총 ${total}일)</span>`;
+      leaveBadge.innerHTML = `🌴 잔여 연차: <strong>${remain}일</strong> <span style="font-weight:400; color:#64748b;">(총 ${total}일 · ${summary.phaseLabel})</span>`;
     }
   },
 
@@ -465,11 +506,16 @@ const App = {
     const db = StorageDB.getData();
     const myRow = (db.users || []).find(u => u.id === user.id) || user;
 
-    const total = Number(myRow.annualTotal ?? 15);
-    const used = Number(myRow.annualUsed ?? 0);
-    const remain = Number((total - used).toFixed(1));
+    const summary = this.getUserLeaveSummary(myRow, db);
+    const total = summary.totalLeave;
+    const used = summary.usedLeave;
+    const remain = summary.remainingLeave;
 
     document.getElementById("profile-leave-summary").innerHTML = `
+      <div style="grid-column:1 / -1; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; background:#f8fafc; padding:8px 12px; border-radius:8px; border:1px solid #e2e8f0; text-align:left;">
+        <span class="status-badge ${this.getPhaseBadgeClass(summary.phase)}">${summary.phaseLabel}</span>
+        <span style="font-size:11.5px; color:#64748b;">기준 기간: ${summary.periodLabel}${summary.hireDate ? ` (입사일: ${summary.hireDate})` : ""}</span>
+      </div>
       <div style="background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
         <div style="font-size:12px; color:#64748b;">총 부여 연차</div>
         <strong style="font-size:18px; color:#0f172a;">${total}일</strong>
@@ -708,58 +754,107 @@ const App = {
     this.renderSubPageContent(container, validPage, user);
   },
 
+  // 결재선 선택 상태(메모리·스토리지·화면·모달 드롭다운) 일괄 초기화
+  resetApproverSelection(showFeedback = false) {
+    this.selectedApprover1 = null;
+    this.selectedApprover2 = null;
+    try {
+      localStorage.removeItem("gw_selected_approvers");
+      localStorage.removeItem("gw_selected_approver1");
+      localStorage.removeItem("gw_selected_approver2");
+    } catch (e) {}
+
+    const sel1 = document.getElementById("modal-select-ap1");
+    const sel2 = document.getElementById("modal-select-ap2");
+    if (sel1) sel1.value = "";
+    if (sel2) sel2.value = "";
+
+    const displayEl = document.getElementById("selected-approvers-display");
+    if (displayEl) {
+      displayEl.innerHTML = `<span style="color:#ef4444; font-weight:600;">우측 상단 [결재권자 2명 선택] 버튼을 눌러 상급자를 지정하세요</span>`;
+    }
+    const resetInlineBtn = document.getElementById("btn-reset-approvers-inline");
+    if (resetInlineBtn) {
+      resetInlineBtn.classList.add("hidden");
+    }
+
+    if (showFeedback) {
+      this.showToast("결재선 선택이 초기화되었습니다.");
+    }
+  },
+
   openApproverModal() {
     const db = StorageDB.getData();
     const user = Auth.getCurrentUser();
     let activeUsers = (db.users || []).filter(u => u.approvalStatus !== "PENDING" && u.approvalStatus !== "REJECTED");
-    if (activeUsers.length === 0) activeUsers = [user];
+    if (activeUsers.length === 0 && user) activeUsers = [user];
 
     const listEl = document.getElementById("approver-modal-list");
-    const cur1 = this.selectedApprover1 ? this.selectedApprover1.id : "";
-    const cur2 = this.selectedApprover2 ? this.selectedApprover2.id : "";
+    const cur1 = (this.selectedApprover1 && this.selectedApprover1.id) ? String(this.selectedApprover1.id) : "";
+    const cur2 = (this.selectedApprover2 && this.selectedApprover2.id) ? String(this.selectedApprover2.id) : "";
 
     listEl.innerHTML = `
       <div style="margin-bottom:14px;">
         <label style="display:block; font-weight:700; font-size:13px; margin-bottom:6px; color:#1e3a8a;">① 1차 결재자 (검토자) 선택</label>
         <select id="modal-select-ap1" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px;">
-          <option value="">-- 재직자 목록에서 1차 결재자 선택 --</option>
+          <option value="" ${!cur1 ? "selected" : ""}>-- 결재자를 선택하세요 --</option>
           ${activeUsers.map(u => `
-            <option value="${u.id}" ${u.id === cur1 ? "selected" : ""}>[${u.dept}] ${u.name} ${u.position} (${u.email || ""})</option>
+            <option value="${u.id}" ${String(u.id) === cur1 ? "selected" : ""}>[${u.dept}] ${u.name} ${u.position} (${u.email || ""})</option>
           `).join("")}
         </select>
       </div>
       <div style="margin-bottom:14px;">
         <label style="display:block; font-weight:700; font-size:13px; margin-bottom:6px; color:#047857;">② 최종 결재권자 (승인자) 선택</label>
         <select id="modal-select-ap2" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px;">
-          <option value="">-- 재직자 목록에서 최종 결재권자 선택 --</option>
+          <option value="" ${!cur2 ? "selected" : ""}>-- 결재자를 선택하세요 --</option>
           ${activeUsers.map(u => `
-            <option value="${u.id}" ${u.id === cur2 ? "selected" : ""}>[${u.dept}] ${u.name} ${u.position} (${u.email || ""})</option>
+            <option value="${u.id}" ${String(u.id) === cur2 ? "selected" : ""}>[${u.dept}] ${u.name} ${u.position} (${u.email || ""})</option>
           `).join("")}
         </select>
       </div>
     `;
+
+    // 현재 지정된 결재선이 없으면 두 드롭다운 모두 빈 값("")으로 명시적 설정
+    const sel1 = document.getElementById("modal-select-ap1");
+    const sel2 = document.getElementById("modal-select-ap2");
+    if (sel1) sel1.value = cur1;
+    if (sel2) sel2.value = cur2;
 
     document.getElementById("approver-modal").classList.remove("hidden");
   },
 
   confirmApproverSelection() {
     const db = StorageDB.getData();
-    const id1 = document.getElementById("modal-select-ap1").value;
-    const id2 = document.getElementById("modal-select-ap2").value;
+    const sel1 = document.getElementById("modal-select-ap1");
+    const sel2 = document.getElementById("modal-select-ap2");
+    const id1 = (sel1 ? sel1.value : "").trim();
+    const id2 = (sel2 ? sel2.value : "").trim();
 
-    if (!id1 || !id2) return alert("1차 결재자와 최종 결재권자 2명을 모두 선택해 주세요.");
+    if (!id1 || !id2) {
+      return alert("1차 결재자와 최종 결재권자 2명을 모두 선택해 주세요.");
+    }
 
-    this.selectedApprover1 = db.users.find(u => u.id === id1);
-    this.selectedApprover2 = db.users.find(u => u.id === id2);
+    const ap1 = (db.users || []).find(u => String(u.id) === String(id1));
+    const ap2 = (db.users || []).find(u => String(u.id) === String(id2));
+    if (!ap1 || !ap2) {
+      return alert("선택한 결재자 정보를 찾을 수 없습니다. 다시 선택해 주세요.");
+    }
+
+    this.selectedApprover1 = ap1;
+    this.selectedApprover2 = ap2;
 
     document.getElementById("approver-modal").classList.add("hidden");
     const displayEl = document.getElementById("selected-approvers-display");
-    if (displayEl && this.selectedApprover1 && this.selectedApprover2) {
+    if (displayEl) {
       displayEl.innerHTML = `
         <span class="status-badge status-IN_PROGRESS">1차: ${this.selectedApprover1.name} ${this.selectedApprover1.position}</span>
         ➔
         <span class="status-badge status-APPROVED">최종: ${this.selectedApprover2.name} ${this.selectedApprover2.position}</span>
       `;
+    }
+    const resetInlineBtn = document.getElementById("btn-reset-approvers-inline");
+    if (resetInlineBtn) {
+      resetInlineBtn.classList.remove("hidden");
     }
     this.showToast("결재권자 2명이 지정되었습니다.");
   },
@@ -787,6 +882,7 @@ const App = {
 
   cancelEditMode() {
     this.editingLeaveDocId = null;
+    this.resetApproverSelection(false);
     this.navigateTo("approval");
   },
 
@@ -831,7 +927,58 @@ const App = {
     this.navigateTo("leave-calendar");
   },
 
-  // [핵심] 월간 그리드 달력 + 겹치는 휴가자 자동 스태킹(Lane 배정) 렌더링
+  // 주(week) 단위 겹치는 줄 수(maxLanes)에 따른 동적 막대 높이·간격·폰트·행 높이 계산
+  computeCalendarWeekMetrics(maxLanes, availableHeight = 84) {
+    const BASE_HEIGHT = 26;
+    const BASE_GAP = 4;
+    const MIN_HEIGHT = 15;
+    const HEADER_OFFSET = 30;
+    const BOTTOM_PAD = 6;
+    const baseRowHeight = HEADER_OFFSET + availableHeight + BOTTOM_PAD;
+
+    if (!maxLanes || maxLanes <= 0) {
+      return {
+        maxLanes: 0,
+        availableHeight,
+        barHeight: BASE_HEIGHT,
+        gap: BASE_GAP,
+        fontSize: 12,
+        headerOffset: HEADER_OFFSET,
+        rowHeight: baseRowHeight
+      };
+    }
+
+    let barHeight = BASE_HEIGHT;
+    let gap = BASE_GAP;
+
+    if (maxLanes * BASE_HEIGHT + (maxLanes - 1) * BASE_GAP > availableHeight) {
+      gap = maxLanes >= 4 ? 2 : 3;
+      barHeight = Math.max(
+        MIN_HEIGHT,
+        Math.floor((availableHeight - (maxLanes - 1) * gap) / maxLanes)
+      );
+    }
+
+    const fontSize = barHeight >= 22 ? 12 : barHeight >= 18 ? 11 : 10;
+    const requiredBarsHeight = maxLanes * barHeight + (maxLanes - 1) * gap;
+    // MIN_HEIGHT(15px) 하한선에 도달해 가용 높이를 초과하는 극단적 겹침(6줄 이상)일 때만 주(row) 높이를 유연하게 확장
+    const rowHeight = Math.max(
+      baseRowHeight,
+      HEADER_OFFSET + requiredBarsHeight + BOTTOM_PAD
+    );
+
+    return {
+      maxLanes,
+      availableHeight,
+      barHeight,
+      gap,
+      fontSize,
+      headerOffset: HEADER_OFFSET,
+      rowHeight
+    };
+  },
+
+  // [핵심] 월간 그리드 달력 + 겹치는 휴가자 자동 스태킹(Lane 배정) 및 반응형 막대 두께 리사이징 렌더링
   renderMonthlyGridCalendar(approvedLeaves) {
     const year = this.calYear;
     const month = this.calMonth;
@@ -925,8 +1072,9 @@ const App = {
         });
       });
 
-      // 휴가자가 많이 겹칠수록 해당 주의 달력 칸 높이를 자동으로 늘려줌 (기본 96px, 겹치면 26px씩 자동 확장)
-      const rowHeight = Math.max(96, 36 + lanes.length * 26);
+      // 해당 주의 최대 겹침 줄 수(maxLanes)를 기준으로 막대 두께·간격·폰트·주 높이 동적 계산
+      const maxLanes = lanes.length;
+      const metrics = this.computeCalendarWeekMetrics(maxLanes);
 
       const dayCellsHtml = week.map((d, idx) => {
         const dStr = fmt(d);
@@ -941,8 +1089,8 @@ const App = {
           <div class="cal-day-cell ${isCurrentMonth ? '' : 'other-month'} ${dStr === todayStr ? 'is-today' : ''}">
             <div class="cal-day-num" style="color:${isCurrentMonth ? numColor : '#cbd5e1'};">
               <span class="cal-day-no">${d.getDate()} ${todayBadge}</span>
-              ${holName ? `<span class="cal-hol-label" title="${holName}">${holName}</span>` : ""}
             </div>
+            ${holName ? `<span class="cal-hol-label" title="${holName}">${holName}</span>` : ""}
           </div>
         `;
       }).join("");
@@ -951,7 +1099,7 @@ const App = {
         const actor = this.resolveLeaveActors(seg.doc);
         const leftPct = (seg.startCol * 100 / 7).toFixed(4);
         const widthPct = (seg.span * 100 / 7).toFixed(4);
-        const topPx = 30 + seg.lane * 25;
+        const topPx = metrics.headerOffset + seg.lane * (metrics.barHeight + metrics.gap);
         const bgColor = getColorForUser(actor.applicantName);
         const radiusLeft = seg.isContinuedLeft ? "0" : "5px";
         const radiusRight = seg.isContinuedRight ? "0" : "5px";
@@ -959,14 +1107,14 @@ const App = {
         return `
           <div class="cal-event-bar"
                title="${actor.applicantName} ${actor.position} (${actor.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
-               style="--lane:${seg.lane}; --left-pct:${leftPct}; --width-pct:${widthPct}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
+               style="--lane:${seg.lane}; --left-pct:${leftPct}; --width-pct:${widthPct}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; height: ${metrics.barHeight}px; line-height: ${metrics.barHeight}px; font-size: ${metrics.fontSize}px; padding-top: 0; padding-bottom: 0; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
             <span class="bar-name">${actor.applicantName}</span><span class="bar-extra"> ${actor.position} (${seg.doc.leaveType})</span>
           </div>
         `;
       }).join("");
 
       return `
-        <div class="cal-week-row" style="--lanes:${lanes.length}; min-height: ${rowHeight}px;">
+        <div class="cal-week-row" style="--lanes:${maxLanes}; min-height: ${metrics.rowHeight}px;">
           <div class="cal-day-cells">${dayCellsHtml}</div>
           <div class="cal-events-layer">${barsHtml}</div>
         </div>
@@ -1048,9 +1196,10 @@ const App = {
   renderSubPageContent(container, pageKey, user) {
     const db = StorageDB.getData();
     const myProfile = (db.users || []).find(u => u.id === user.id) || user;
-    const totalLeave = Number(myProfile.annualTotal ?? 15);
-    const usedLeave = Number(myProfile.annualUsed ?? 0);
-    const remainLeave = Number((totalLeave - usedLeave).toFixed(1));
+    const myLeaveSummary = this.getUserLeaveSummary(myProfile, db);
+    const totalLeave = myLeaveSummary.totalLeave;
+    const usedLeave = myLeaveSummary.usedLeave;
+    const remainLeave = myLeaveSummary.remainingLeave;
 
     // 1. 전자결재 및 휴가 신청 (휴가 수정 및 취소/연차복구 기능 포함)
     if (pageKey === "approval") {
@@ -1067,8 +1216,12 @@ const App = {
 
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%); border:1px solid #bfdbfe;">
-          <div class="summary-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <h4 style="color:#1e3a8a; margin:0;">🌴 ${myProfile.name} ${myProfile.position}님의 연차 현황 및 실시간 차감 계산</h4>
+          <div class="summary-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <h4 style="color:#1e3a8a; margin:0;">🌴 ${myProfile.name} ${myProfile.position}님의 연차 현황 및 실시간 차감 계산</h4>
+              <span class="status-badge ${this.getPhaseBadgeClass(myLeaveSummary.phase)}">${myLeaveSummary.phaseLabel}</span>
+              <span style="font-size:12px; color:#475569;">(기준 기간: ${myLeaveSummary.periodLabel})</span>
+            </div>
             <span style="font-size:12px; color:#1d4ed8; font-weight:600;">✔ 주말(토·일) 및 법정공휴일·대체공휴일 자동 제외</span>
           </div>
           <div class="leave-summary-grid" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; text-align:center;">
@@ -1100,12 +1253,15 @@ const App = {
             </button>
           </div>
 
-          <div class="approver-line" style="background:#f8fafc; padding:12px 14px; border-radius:8px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
+          <div class="approver-line" style="background:#f8fafc; padding:12px 14px; border-radius:8px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
             <div style="font-size:13px; font-weight:600; color:#334155;">지정된 결재선 (1차 ➔ 최종):</div>
-            <div id="selected-approvers-display" style="font-size:13px;">
-              ${this.selectedApprover1 && this.selectedApprover2
-                ? `<span class="status-badge status-IN_PROGRESS">1차: ${ap1Text}</span> ➔ <span class="status-badge status-APPROVED">최종: ${ap2Text}</span>`
-                : `<span style="color:#ef4444; font-weight:600;">우측 상단 [결재권자 2명 선택] 버튼을 눌러 상급자를 지정하세요</span>`}
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div id="selected-approvers-display" style="font-size:13px;">
+                ${this.selectedApprover1 && this.selectedApprover2
+                  ? `<span class="status-badge status-IN_PROGRESS">1차: ${ap1Text}</span> ➔ <span class="status-badge status-APPROVED">최종: ${ap2Text}</span>`
+                  : `<span style="color:#ef4444; font-weight:600;">우측 상단 [결재권자 2명 선택] 버튼을 눌러 상급자를 지정하세요</span>`}
+              </div>
+              <button type="button" id="btn-reset-approvers-inline" class="btn-logout ${this.selectedApprover1 || this.selectedApprover2 ? "" : "hidden"}" style="padding:4px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.resetApproverSelection(true)">🔄 초기화</button>
             </div>
           </div>
 
@@ -1301,6 +1457,9 @@ const App = {
             });
             this.showToast(`휴가 신청서(실차감 ${reqDays}일)가 상신되었습니다!`);
           }
+          // 제출/재상신 완료 즉시 선택된 결재선 및 수정 모드 상태 초기화
+          this.editingLeaveDocId = null;
+          this.resetApproverSelection(false);
           this.navigateTo("approval");
         } catch (err) {
           alert(err.message);
@@ -1337,10 +1496,13 @@ const App = {
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; border-left:4px solid #059669; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div>
-            <h4 style="margin-bottom:4px;">➕ 임직원 계정 직접 등록 및 인사 정보 관리</h4>
-            <p style="font-size:12.5px; color:#64748b; margin:0;">신입·기존 임직원 계정을 즉시 승인(APPROVED) 상태로 생성하거나, 아래 직원 목록에서 [정보 수정]을 눌러 인사 정보를 변경할 수 있습니다.</p>
+            <h4 style="margin-bottom:4px;">➕ 임직원 계정 직접 등록 · 인사 정보 및 일괄 휴가 관리</h4>
+            <p style="font-size:12.5px; color:#64748b; margin:0;">신입·경력 임직원 계정을 즉시 승인(APPROVED) 상태로 등록하거나, 선택 직원에게 포상·하계·대체휴가를 일괄 부여할 수 있습니다.</p>
           </div>
-          <button type="button" class="btn-primary" style="background:#059669;" onclick="App.openAdminCreateUserModal()">+ 임직원 직접 등록</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-primary" style="background:#2563eb;" onclick="App.openAdminBulkGrantModal()">🎁 일괄 휴가 부여</button>
+            <button type="button" class="btn-primary" style="background:#059669;" onclick="App.openAdminCreateUserModal()">+ 임직원 직접 등록</button>
+          </div>
         </div>
 
         <div class="card" style="margin-bottom:18px; border-left:4px solid #f59e0b;">
@@ -1418,24 +1580,32 @@ const App = {
         </div>
 
         <div class="card">
-          <div class="card-header"><h4>👥 임직원별 연차 부여 및 잔여 일수 관리 (${allUsers.length}명)</h4></div>
+          <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <h4>👥 임직원별 연차 산정 현황 및 인사 관리 (${allUsers.length}명)</h4>
+            <button type="button" class="btn-logout" style="color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:700;" onclick="App.openAdminBulkGrantModal()">🎁 선택 직원 일괄 휴가 부여</button>
+          </div>
           <table class="list-table">
             <thead>
               <tr>
                 <th>성명 / 이메일</th>
                 <th>부서 · 직급</th>
-                <th>총 부여 연차(일)</th>
+                <th>적용 구간 / 기준 기간</th>
+                <th>총 발생 연차(일)</th>
                 <th>사용 연차(일)</th>
                 <th>현재 잔여 연차</th>
                 <th>가입 상태</th>
-                <th>개별 저장</th>
+                <th>인사 / 계정 관리</th>
               </tr>
             </thead>
             <tbody>
               ${allUsers.map(u => {
-                const t = Number(u.annualTotal ?? 15);
-                const used = Number(u.annualUsed ?? 0);
-                const rem = Number((t - used).toFixed(1));
+                const lvSum = this.getUserLeaveSummary(u, db);
+                const t = lvSum.totalLeave;
+                const used = lvSum.usedLeave;
+                const rem = lvSum.remainingLeave;
+                const adjStr = lvSum.currentAdjustment !== 0
+                  ? ` (지정 ${lvSum.baseAnnualLeave} ${lvSum.currentAdjustment > 0 ? "+" : ""}${lvSum.currentAdjustment})`
+                  : ` (지정 ${lvSum.baseAnnualLeave})`;
                 const isSelfOrMasterRow = String(u.id) === String(user.id)
                   || (u.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
                 const statusBadgeHtml = u.approvalStatus === "APPROVED"
@@ -1445,15 +1615,27 @@ const App = {
                   : `<span class="status-badge status-PENDING">⏳ 대기</span>`;
                 return `
                   <tr>
-                    <td><strong>${u.name}</strong><br/><span style="font-size:11px; color:#64748b;">${u.email || "-"}</span></td>
-                    <td>${u.dept} · ${u.position}</td>
-                    <td><input type="number" id="total-${u.id}" value="${t}" step="0.5" style="width:70px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;" /></td>
-                    <td><input type="number" id="used-${u.id}" value="${used}" step="0.5" style="width:70px; padding:6px; border:1px solid #cbd5e1; border-radius:6px;" /></td>
-                    <td><strong style="color:#1d4ed8;">${rem}일</strong></td>
+                    <td>
+                      <strong>${u.name}</strong><br/>
+                      <span style="font-size:11px; color:#64748b;">${u.email || "-"}</span>
+                    </td>
+                    <td>
+                      ${u.dept} · ${u.position}<br/>
+                      <span style="font-size:11px; color:#64748b;">입사: ${lvSum.hireDate || "미입력"}</span>
+                    </td>
+                    <td>
+                      <span class="status-badge ${this.getPhaseBadgeClass(lvSum.phase)}">${lvSum.phaseLabel}</span><br/>
+                      <span style="font-size:11px; color:#64748b;">${lvSum.periodLabel}</span>
+                    </td>
+                    <td>
+                      <strong>${t}일</strong><br/>
+                      <span style="font-size:11px; color:#64748b;">${adjStr}</span>
+                    </td>
+                    <td><strong>${used}일</strong></td>
+                    <td><strong style="color:#1d4ed8; font-size:14px;">${rem}일</strong></td>
                     <td>${statusBadgeHtml}</td>
                     <td>
                       <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="App.saveUserLeave('${u.id}')">연차 저장</button>
                         <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:600;" onclick="App.openAdminEditUserModal('${u.id}')">✏️ 정보 수정</button>
                         ${u.approvalStatus === "REJECTED" ? `
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#047857; border-color:#a7f3d0; background:#ecfdf5;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">🔄 승인 복구</button>
@@ -1831,13 +2013,29 @@ const App = {
     const target = (db.users || []).find(u => String(u.id) === String(targetUserId));
     if (!target) return alert("대상 직원 정보를 찾을 수 없습니다.");
 
+    const curYear = new Date().getFullYear();
+    const baseLeave = Number.isFinite(Number(target.base_annual_leave ?? target.baseAnnualLeave))
+      ? Number(target.base_annual_leave ?? target.baseAnnualLeave)
+      : Number(target.annualTotal ?? 15);
+    const adjYear = Number(target.leave_adjustment_year ?? target.leaveAdjustmentYear ?? 0);
+    const activeAdj = (adjYear === curYear) ? Number(target.leave_adjustment ?? target.leaveAdjustment ?? 0) : 0;
+    const useMonthly = (target.use_monthly_accrual ?? target.useMonthlyAccrual) !== false;
+    const hireDateStr = String(target.hire_date ?? target.hireDate ?? "").slice(0, 10);
+
     document.getElementById("adm-edit-id").value = target.id;
     document.getElementById("adm-edit-email").value = target.email || "";
     document.getElementById("adm-edit-name").value = target.name || "";
     document.getElementById("adm-edit-pos").value = target.position || "";
     document.getElementById("adm-edit-dept").value = target.dept || "";
     document.getElementById("adm-edit-phone").value = target.phone || "";
-    document.getElementById("adm-edit-annual-total").value = Number(target.annualTotal ?? 15);
+    document.getElementById("adm-edit-annual-total").value = baseLeave;
+
+    const hireEl = document.getElementById("adm-edit-hire-date");
+    if (hireEl) hireEl.value = /^\d{4}-\d{2}-\d{2}$/.test(hireDateStr) ? hireDateStr : "";
+    const monthlyEl = document.getElementById("adm-edit-monthly-accrual");
+    if (monthlyEl) monthlyEl.checked = useMonthly;
+    const adjEl = document.getElementById("adm-edit-leave-adj");
+    if (adjEl) adjEl.value = activeAdj;
 
     const roleSelect = document.getElementById("adm-edit-role");
     const roleNotice = document.getElementById("adm-edit-role-notice");
@@ -1867,13 +2065,20 @@ const App = {
     const dept = document.getElementById("adm-edit-dept").value.trim();
     const phone = document.getElementById("adm-edit-phone").value.trim();
     let role = document.getElementById("adm-edit-role").value;
-    const annualTotal = Number(document.getElementById("adm-edit-annual-total").value);
+    const baseAnnualLeave = Number(document.getElementById("adm-edit-annual-total").value);
+    const hireDateRaw = (document.getElementById("adm-edit-hire-date")?.value || "").trim();
+    const hireDate = /^\d{4}-\d{2}-\d{2}$/.test(hireDateRaw) ? hireDateRaw : null;
+    const useMonthlyEl = document.getElementById("adm-edit-monthly-accrual");
+    const useMonthlyAccrual = useMonthlyEl ? Boolean(useMonthlyEl.checked) : true;
+    const rawAdj = Number(document.getElementById("adm-edit-leave-adj")?.value ?? 0);
+    const leaveAdjustment = Number.isFinite(rawAdj) ? rawAdj : 0;
+    const curYear = new Date().getFullYear();
 
     if (!name || !position || !dept) {
       return alert("⚠️ 이름, 부서, 직급을 모두 입력해 주세요.");
     }
-    if (!Number.isFinite(annualTotal) || annualTotal < 0) {
-      return alert("⚠️ 총 부여 연차는 0 이상의 숫자로 입력해 주세요.");
+    if (!Number.isFinite(baseAnnualLeave) || baseAnnualLeave < 0) {
+      return alert("⚠️ 지정 연차는 0 이상의 숫자로 입력해 주세요.");
     }
 
     const isSelfAdmin = String(targetId) === String(currentUser.id)
@@ -1882,6 +2087,8 @@ const App = {
       role = "ADMIN";
     }
 
+    const annualTotal = Number((baseAnnualLeave + leaveAdjustment).toFixed(1));
+
     try {
       await StorageDB.adminUpdateUserProfile(targetId, {
         name,
@@ -1889,6 +2096,11 @@ const App = {
         dept,
         phone,
         role,
+        hire_date: hireDate,
+        use_monthly_accrual: useMonthlyAccrual,
+        base_annual_leave: baseAnnualLeave,
+        leave_adjustment: leaveAdjustment,
+        leave_adjustment_year: curYear,
         annual_total: annualTotal
       });
 
@@ -1905,6 +2117,16 @@ const App = {
           dept,
           phone,
           role: "ADMIN",
+          hireDate,
+          hire_date: hireDate,
+          useMonthlyAccrual,
+          use_monthly_accrual: useMonthlyAccrual,
+          baseAnnualLeave,
+          base_annual_leave: baseAnnualLeave,
+          leaveAdjustment,
+          leave_adjustment: leaveAdjustment,
+          leaveAdjustmentYear: curYear,
+          leave_adjustment_year: curYear,
           annualTotal
         };
         Auth.saveCurrentUser(nextMe);
@@ -1912,7 +2134,7 @@ const App = {
       }
 
       this.closeAdminEditUserModal();
-      this.showToast(`✅ ${name} ${position}님의 인사 정보가 저장되었습니다.`);
+      this.showToast(`✅ ${name} ${position}님의 인사 및 연차 설정이 저장되었습니다.`);
       this.navigateTo(this.currentPage || "admin", false);
     } catch (err) {
       alert(err.message);
@@ -1934,6 +2156,12 @@ const App = {
     document.getElementById("adm-create-dept").value = "";
     document.getElementById("adm-create-role").value = "USER";
     document.getElementById("adm-create-annual-total").value = "15";
+    const hireEl = document.getElementById("adm-create-hire-date");
+    if (hireEl) hireEl.value = new Date().toISOString().slice(0, 10);
+    const monthlyEl = document.getElementById("adm-create-monthly-accrual");
+    if (monthlyEl) monthlyEl.checked = true;
+    const adjEl = document.getElementById("adm-create-leave-adj");
+    if (adjEl) adjEl.value = "0";
     this.generateTempPassword();
 
     this.lastCreatedAccountInfo = null;
@@ -1970,7 +2198,13 @@ const App = {
     const position = document.getElementById("adm-create-pos").value.trim();
     const dept = document.getElementById("adm-create-dept").value.trim();
     const role = document.getElementById("adm-create-role").value;
-    const annualTotal = Number(document.getElementById("adm-create-annual-total").value);
+    const baseAnnualLeave = Number(document.getElementById("adm-create-annual-total").value);
+    const hireDateRaw = (document.getElementById("adm-create-hire-date")?.value || "").trim();
+    const hireDate = /^\d{4}-\d{2}-\d{2}$/.test(hireDateRaw) ? hireDateRaw : null;
+    const monthlyEl = document.getElementById("adm-create-monthly-accrual");
+    const useMonthlyAccrual = monthlyEl ? Boolean(monthlyEl.checked) : true;
+    const rawAdj = Number(document.getElementById("adm-create-leave-adj")?.value ?? 0);
+    const leaveAdjustment = Number.isFinite(rawAdj) ? rawAdj : 0;
 
     const submitBtn = document.getElementById("btn-submit-adm-create");
     try {
@@ -1986,7 +2220,11 @@ const App = {
         dept,
         position,
         role,
-        annualTotal
+        hireDate,
+        useMonthlyAccrual,
+        baseAnnualLeave,
+        leaveAdjustment,
+        annualTotal: Number((baseAnnualLeave + leaveAdjustment).toFixed(1))
       });
 
       if (submitBtn) {
@@ -2014,6 +2252,130 @@ const App = {
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = "임직원 계정 생성하기";
+      }
+      alert(err.message);
+    }
+  },
+
+  // ===================================================================
+  // 관리자 전용: 선택 재직자 일괄 휴가 부여 모달 제어
+  // ===================================================================
+  openAdminBulkGrantModal() {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    const db = StorageDB.getData();
+    const activeUsers = (db.users || []).filter(u => u.approvalStatus === "APPROVED");
+    const listEl = document.getElementById("bulk-grant-user-list");
+
+    if (listEl) {
+      listEl.innerHTML = activeUsers.length === 0
+        ? `<div style="padding:18px; text-align:center; color:#94a3b8;">승인 완료된 재직자가 없습니다.</div>`
+        : activeUsers.map(u => {
+            const lvSum = this.getUserLeaveSummary(u, db);
+            return `
+              <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-bottom:1px solid #f1f5f9; cursor:pointer; font-size:13px;">
+                <span style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" class="bulk-grant-chk" value="${u.id}" checked onchange="App.updateBulkGrantCount()" />
+                  <strong>${u.name} ${u.position || ""}</strong>
+                  <span style="color:#64748b; font-size:12px;">(${u.dept || "-"})</span>
+                </span>
+                <span style="font-size:12px; color:#1d4ed8; font-weight:600;">잔여 ${lvSum.remainingLeave}일 / 총 ${lvSum.totalLeave}일</span>
+              </label>
+            `;
+          }).join("");
+    }
+
+    const chkAll = document.getElementById("bulk-grant-check-all");
+    if (chkAll) chkAll.checked = activeUsers.length > 0;
+    const daysEl = document.getElementById("bulk-grant-days");
+    const reasonEl = document.getElementById("bulk-grant-reason");
+    if (daysEl) daysEl.value = "";
+    if (reasonEl) reasonEl.value = "";
+
+    this.updateBulkGrantCount();
+    document.getElementById("admin-bulk-grant-modal").classList.remove("hidden");
+  },
+
+  closeAdminBulkGrantModal() {
+    const modal = document.getElementById("admin-bulk-grant-modal");
+    if (modal) modal.classList.add("hidden");
+  },
+
+  toggleBulkGrantAll(checked) {
+    document.querySelectorAll(".bulk-grant-chk").forEach(chk => {
+      chk.checked = Boolean(checked);
+    });
+    this.updateBulkGrantCount();
+  },
+
+  updateBulkGrantCount() {
+    const allChks = Array.from(document.querySelectorAll(".bulk-grant-chk"));
+    const selectedChks = allChks.filter(c => c.checked);
+    const countEl = document.getElementById("bulk-grant-count-text");
+    if (countEl) {
+      countEl.textContent = `총 ${allChks.length}명 중 ${selectedChks.length}명 선택`;
+    }
+    const chkAll = document.getElementById("bulk-grant-check-all");
+    if (chkAll && allChks.length > 0) {
+      chkAll.checked = selectedChks.length === allChks.length;
+    }
+  },
+
+  async submitAdminBulkGrant() {
+    const currentUser = Auth.getCurrentUser();
+    if (!Auth.isAdmin(currentUser)) return alert("⛔ 시스템 관리자만 사용할 수 있습니다.");
+
+    const selectedIds = Array.from(document.querySelectorAll(".bulk-grant-chk"))
+      .filter(c => c.checked)
+      .map(c => c.value);
+
+    if (selectedIds.length === 0) {
+      return alert("⚠️ 휴가를 부여할 직원을 1명 이상 선택해 주세요.");
+    }
+
+    const rawDays = (document.getElementById("bulk-grant-days")?.value || "").trim();
+    const deltaDays = Number(rawDays);
+    if (!rawDays || !Number.isFinite(deltaDays) || deltaDays === 0) {
+      return alert("⚠️ 부여 일수를 0이 아닌 숫자(예: 3 또는 -1)로 입력해 주세요.");
+    }
+
+    const reason = (document.getElementById("bulk-grant-reason")?.value || "").trim();
+    if (!reason) {
+      return alert("⚠️ 부여 사유(예: 하계휴가, 창립기념일 포상, 대체휴가)를 입력해 주세요.");
+    }
+
+    const signStr = deltaDays > 0 ? `+${deltaDays}` : `${deltaDays}`;
+    if (!confirm(`선택한 ${selectedIds.length}명에게 ${signStr}일 (사유: ${reason})을 일괄 부여합니다. 진행할까요?`)) {
+      return;
+    }
+
+    const btn = document.getElementById("btn-submit-bulk-grant");
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "일괄 부여 중...";
+      }
+      await StorageDB.adminBulkGrantLeave(selectedIds, deltaDays, reason);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "일괄 휴가 부여 실행";
+      }
+
+      const db = StorageDB.getData();
+      const latestMe = (db.users || []).find(u => String(u.id) === String(currentUser.id));
+      if (latestMe) {
+        Auth.saveCurrentUser(latestMe);
+        this.updateHeaderUserInfo(latestMe);
+      }
+
+      this.closeAdminBulkGrantModal();
+      this.showToast(`🎁 ${selectedIds.length}명에게 ${signStr}일 (${reason}) 일괄 부여가 완료되었습니다!`);
+      this.navigateTo(this.currentPage || "admin", false);
+    } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "일괄 휴가 부여 실행";
       }
       alert(err.message);
     }

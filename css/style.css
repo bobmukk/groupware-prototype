@@ -784,6 +784,7 @@ body {
 }
 
 .cal-day-cell {
+  position: relative;
   border-right: 1px solid #f1f5f9;
   padding: clamp(4px, 0.6vw, 8px);
   font-size: clamp(11px, 1vw, 12.5px);
@@ -810,13 +811,20 @@ body {
 }
 
 .cal-hol-label {
-  font-size: clamp(9.5px, 0.85vw, 11px);
-  color: #dc2626;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 65%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 90%;
+  max-width: 90%;
+  font-size: clamp(10.5px, 0.95vw, 12px);
+  color: #111111;
+  font-weight: 700;
+  line-height: 1.25;
+  word-break: keep-all;
+  white-space: normal;
+  pointer-events: none;
 }
 
 .cal-events-layer {
@@ -827,10 +835,10 @@ body {
 
 .cal-event-bar {
   position: absolute;
-  height: 22px;
-  line-height: 22px;
-  /* 창 크기에 맞춰 막대 안의 글자 크기와 여백도 유동적으로 자동 조절 */
-  font-size: clamp(10.5px, 0.95vw, 12px);
+  height: 26px;
+  line-height: 26px;
+  /* 주별 겹치는 줄 수(maxLanes)에 따라 JS에서 height·line-height·font-size·top을 동적 동기화 */
+  font-size: 12px;
   font-weight: 700;
   color: #fff;
   padding: 0 clamp(4px, 0.6vw, 8px);
@@ -840,7 +848,7 @@ body {
   text-overflow: ellipsis;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   z-index: 2;
-  transition: left 0.15s ease, width 0.15s ease, top 0.15s ease;
+  transition: left 0.15s ease, width 0.15s ease, top 0.15s ease, height 0.15s ease;
 }
 
 /* =========================================================
@@ -1161,11 +1169,15 @@ body {
     display: none;
   }
   .cal-hol-label {
-    font-size: 9px !important;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 9.5px !important;
+    line-height: 1.2 !important;
+    width: 92% !important;
+    max-width: 92% !important;
+    top: 54%;
+    color: #111111 !important;
+    font-weight: 700 !important;
+    word-break: keep-all !important;
+    white-space: normal !important;
   }
   .cal-events-layer {
     padding-top: 22px;

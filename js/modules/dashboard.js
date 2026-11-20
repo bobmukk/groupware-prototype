@@ -7,12 +7,22 @@ const DashboardModule = {
 
     const db = StorageDB.getData();
     const myProfile = (db.users || []).find(u => u.id === user.id) || user;
-
-    const totalLeave = Number(myProfile.annualTotal ?? 15);
-    const usedLeave = Number(myProfile.annualUsed ?? 0);
-    const remainLeave = Number((totalLeave - usedLeave).toFixed(1));
-
     const allLeaves = db.leaveRequests || [];
+
+    const leaveSummary = (typeof calculateUserLeaveSummary === "function")
+      ? calculateUserLeaveSummary(myProfile, allLeaves)
+      : {
+          phase: "REGULAR",
+          phaseLabel: "정규 연차",
+          totalLeave: Number(myProfile.annualTotal ?? 15),
+          usedLeave: Number(myProfile.annualUsed ?? 0),
+          remainingLeave: Number((Number(myProfile.annualTotal ?? 15) - Number(myProfile.annualUsed ?? 0)).toFixed(1)),
+          periodLabel: `${new Date().getFullYear()}.01.01 ~ ${new Date().getFullYear()}.12.31`
+        };
+
+    const totalLeave = leaveSummary.totalLeave;
+    const usedLeave = leaveSummary.usedLeave;
+    const remainLeave = leaveSummary.remainingLeave;
 
     // 1) 내가 지금 결재해야 할 차례인 문서 수
     const myTurnDocs = allLeaves.filter(doc => {
@@ -48,9 +58,13 @@ const DashboardModule = {
       <!-- 핵심 요약 KPI 카드 4종 (클릭 시 해당 메뉴로 즉시 이동) -->
       <div class="kpi-grid">
         <div class="kpi-card" onclick="App.navigateTo('approval')">
-          <div class="kpi-label">🌴 나의 잔여 연차</div>
+          <div class="kpi-label" style="display:flex; align-items:center; justify-content:space-between; gap:4px; flex-wrap:wrap;">
+            <span>🌴 나의 잔여 연차</span>
+            <span class="status-badge status-IN_PROGRESS" style="font-size:10.5px; padding:2px 7px;">${leaveSummary.phaseLabel}</span>
+          </div>
           <div class="kpi-value" style="color:#2563eb;">${remainLeave}일</div>
           <div class="kpi-sub">총 부여 ${totalLeave}일 / 사용 ${usedLeave}일</div>
+          <div style="font-size:11px; color:#64748b; margin-top:2px;">기준: ${leaveSummary.periodLabel}</div>
         </div>
 
         <div class="kpi-card" onclick="App.navigateTo('approval')">

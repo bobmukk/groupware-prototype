@@ -18,6 +18,167 @@ function getSeedData() {
   return JSON.parse(JSON.stringify(base));
 }
 
+/**
+ * 입사일(hire_date) 및 월차 적용 여부(use_monthly_accrual) 기반 연차 자동 계산 공통 유틸
+ * - 1단계: 월차 (입사 1년 미만, 매 만 1개월 경과 시 1일 발생, 최대 11일)
+ * - 2단계: 비례 연차 (전환일 ~ 전환연도 12/31, 0.5일 단위 올림)
+ * - 3단계: 정규 연차 / 지정 연차 (매년 1/1 ~ 12/31 자동 갱신)
+ */
+function calculateUserLeaveSummary(profile, approvedLeaves, today = new Date()) {
+  const round1 = (n) => Number(Number(n || 0).toFixed(1));
+  const fmtYMD = (d) => {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  };
+
+  const todayDate = (today instanceof Date && !isNaN(today.getTime()))
+    ? new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    : (() => {
+        const s = String(today || "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          const [y, m, d] = s.split("-").map(Number);
+          return new Date(y, m - 1, d);
+        }
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      })();
+
+  const currentYear = todayDate.getFullYear();
+  const todayStr = fmtYMD(todayDate);
+
+  const p = profile || {};
+  const rawHire = String(p.hire_date ?? p.hireDate ?? "").trim().slice(0, 10);
+  const hasValidHireDate = /^\d{4}-\d{2}-\d{2}$/.test(rawHire);
+  const useMonthlyAccrual = (p.use_monthly_accrual ?? p.useMonthlyAccrual) !== false;
+
+  const baseAnnualLeave = Number.isFinite(Number(p.base_annual_leave ?? p.baseAnnualLeave))
+    ? Number(p.base_annual_leave ?? p.baseAnnualLeave)
+    : Number.isFinite(Number(p.annual_total ?? p.annualTotal))
+    ? Number(p.annual_total ?? p.annualTotal)
+    : 15;
+
+  const adjYear = Number(p.leave_adjustment_year ?? p.leaveAdjustmentYear ?? 0);
+  const rawAdj = Number(p.leave_adjustment ?? p.leaveAdjustment ?? 0);
+  const currentAdjustment = (adjYear === currentYear && Number.isFinite(rawAdj)) ? rawAdj : 0;
+
+  const leavesList = Array.isArray(approvedLeaves)
+    ? approvedLeaves
+    : (typeof StorageDB !== "undefined" && typeof StorageDB.getData === "function")
+    ? (StorageDB.getData().leaveRequests || [])
+    : [];
+
+  const targetUserId = p.id ? String(p.id) : null;
+  const sumUsedInPeriod = (startStr, endStr) => {
+    let sum = 0;
+    for (const lv of leavesList) {
+      if (!lv) continue;
+      const status = lv.status || "APPROVED";
+      if (status !== "APPROVED") continue;
+      const appId = lv.applicantId ?? lv.applicant_id;
+      if (targetUserId && appId && String(appId) !== targetUserId) continue;
+      const lType = String(lv.leaveType ?? lv.leave_type ?? "");
+      if (lType.includes("미차감")) continue;
+      const sDate = String(lv.startDate ?? lv.start_date ?? "").slice(0, 10);
+      if (sDate >= startStr && sDate <= endStr) {
+        sum += Number(lv.days || 0);
+      }
+    }
+    return round1(sum);
+  };
+
+  let phase = "REGULAR";
+  let phaseLabel = "정규 연차";
+  let periodStart = `${currentYear}-01-01`;
+  let periodEnd = `${currentYear}-12-31`;
+  let totalLeave = round1(baseAnnualLeave + currentAdjustment);
+
+  // 1) 경력직/즉시 지급 모드(use_monthly_accrual === false) 또는 입사일 미입력: 바로 정규/지정 연차 적용
+  if (!useMonthlyAccrual || !hasValidHireDate) {
+    if (!useMonthlyAccrual) {
+      phase = "IMMEDIATE";
+      phaseLabel = "지정 연차 (즉시 지급)";
+    } else {
+      phase = "REGULAR";
+      phaseLabel = "정규 연차";
+    }
+  } else {
+    // 2) 월차 자동 발생 모드 (use_monthly_accrual !== false && hire_date 존재)
+    const [hy, hm, hd] = rawHire.split("-").map(Number);
+    let ty, tm;
+    if (hm === 1 && hd === 1) {
+      // 1월 1일 입사자: 입사연도+1년 1월 1일 전환 (비례 구간 생략)
+      ty = hy + 1;
+      tm = 1;
+    } else if (hm === 12) {
+      // 12월 입사자(12/2~12/31): hire_date+1년이 속한 달(다음해 12월)의 다음달 1일 -> 입사연도+2년 1월 1일
+      ty = hy + 2;
+      tm = 1;
+    } else {
+      // 그 외: hire_date+1년이 속한 달의 다음달 1일
+      ty = hy + 1;
+      tm = hm + 1;
+    }
+
+    const transitionDateStr = `${ty}-${String(tm).padStart(2, "0")}-01`;
+    const transitionPrevDate = new Date(ty, tm - 1, 0);
+    const transitionPrevDayStr = fmtYMD(transitionPrevDate);
+    const transitionYearEndStr = `${ty}-12-31`;
+
+    if (todayStr < transitionDateStr) {
+      // [1단계] 월차 구간 (today < transitionDate)
+      phase = "MONTHLY";
+      phaseLabel = "월차 (입사 1년 미만)";
+      let elapsedMonths = 0;
+      if (todayStr >= rawHire) {
+        elapsedMonths = (todayDate.getFullYear() - hy) * 12 + ((todayDate.getMonth() + 1) - hm);
+        if (todayDate.getDate() < hd) {
+          elapsedMonths -= 1;
+        }
+        elapsedMonths = Math.min(11, Math.max(0, elapsedMonths));
+      }
+      totalLeave = round1(elapsedMonths + currentAdjustment);
+      periodStart = rawHire;
+      periodEnd = transitionPrevDayStr;
+    } else if (tm !== 1 && todayStr >= transitionDateStr && todayStr <= transitionYearEndStr) {
+      // [2단계] 비례 연차 구간 (transitionDate <= today <= 전환연도-12-31, 단 전환일이 1월 1일이 아닌 경우)
+      phase = "PROPORTIONAL";
+      phaseLabel = "비례 연차 (전환기)";
+      const remainingMonths = 12 - tm + 1;
+      const proportionalLeave = Math.ceil((baseAnnualLeave * (remainingMonths / 12)) * 2) / 2;
+      totalLeave = round1(proportionalLeave + currentAdjustment);
+      periodStart = transitionDateStr;
+      periodEnd = transitionYearEndStr;
+    } else {
+      // [3단계] 정규 연차 구간 (그 이후 매년 1/1 ~ 12/31)
+      phase = "REGULAR";
+      phaseLabel = "정규 연차";
+      totalLeave = round1(baseAnnualLeave + currentAdjustment);
+      periodStart = `${currentYear}-01-01`;
+      periodEnd = `${currentYear}-12-31`;
+    }
+  }
+
+  const usedLeave = sumUsedInPeriod(periodStart, periodEnd);
+  const remainingLeave = round1(Math.max(0, totalLeave - usedLeave));
+
+  return {
+    phase,
+    phaseLabel,
+    totalLeave,
+    usedLeave,
+    remainingLeave,
+    periodStart,
+    periodEnd,
+    periodLabel: `${periodStart.replace(/-/g, ".")} ~ ${periodEnd.replace(/-/g, ".")}`,
+    baseAnnualLeave: round1(baseAnnualLeave),
+    currentAdjustment: round1(currentAdjustment),
+    hireDate: hasValidHireDate ? rawHire : null,
+    useMonthlyAccrual
+  };
+}
+
 const StorageDB = {
   getHeaders(isWrite = false) {
     const token = (typeof Auth !== "undefined" && Auth.getToken()) ? Auth.getToken() : SUPABASE_ANON_KEY;
@@ -313,9 +474,10 @@ const StorageDB = {
   },
 
   async bulkUpdateAnnualLeave(totalDays, resetUsed = false) {
+    const baseVal = Number(totalDays);
     const bodyData = resetUsed
-      ? { annual_total: Number(totalDays), annual_used: 0 }
-      : { annual_total: Number(totalDays) };
+      ? { base_annual_leave: baseVal, annual_total: baseVal, annual_used: 0, leave_adjustment: 0, leave_adjustment_year: new Date().getFullYear() }
+      : { base_annual_leave: baseVal, annual_total: baseVal };
 
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=not.is.null`, {
       method: "PATCH",
@@ -327,16 +489,78 @@ const StorageDB = {
   },
 
   async updateSingleUserLeave(userId, annualTotal, annualUsed) {
+    const curYear = new Date().getFullYear();
+    const baseVal = Number(annualTotal);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
       method: "PATCH",
       headers: this.getHeaders(true),
       body: JSON.stringify({
-        annual_total: Number(annualTotal),
-        annual_used: Number(annualUsed)
+        base_annual_leave: baseVal,
+        annual_total: baseVal,
+        annual_used: Number(annualUsed ?? 0),
+        leave_adjustment_year: curYear
       })
     });
     if (!res.ok) throw new Error("연차 정보 수정에 실패했습니다.");
     await this.syncFromCloud();
+  },
+
+  // 관리자 전용: 선택한 재직자들에게 휴가 일수(+/-) 일괄 부여(leave_adjustment 누적 가산) 및 알림 전송
+  async adminBulkGrantLeave(userIds, deltaDays, reason) {
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      throw new Error("휴가를 부여할 대상 직원을 선택해 주세요.");
+    }
+    const delta = Number(deltaDays);
+    if (!Number.isFinite(delta) || delta === 0) {
+      throw new Error("부여할 휴가 일수를 0이 아닌 숫자로 입력해 주세요.");
+    }
+    const cleanReason = String(reason || "").trim();
+    if (!cleanReason) {
+      throw new Error("부여 사유를 입력해 주세요.");
+    }
+
+    const currentYear = new Date().getFullYear();
+    const localDb = this.getData();
+    const signStr = delta > 0 ? `+${delta}` : `${delta}`;
+
+    for (const uid of userIds) {
+      const target = (localDb.users || []).find(u => String(u.id) === String(uid));
+      const prevYear = Number(target?.leave_adjustment_year ?? target?.leaveAdjustmentYear ?? 0);
+      const prevAdj = (prevYear === currentYear)
+        ? Number(target?.leave_adjustment ?? target?.leaveAdjustment ?? 0)
+        : 0;
+      const nextAdj = Number((prevAdj + delta).toFixed(1));
+      const baseLeave = Number(target?.base_annual_leave ?? target?.baseAnnualLeave ?? target?.annualTotal ?? 15);
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${uid}`, {
+        method: "PATCH",
+        headers: { ...this.getHeaders(true), "Prefer": "return=representation" },
+        body: JSON.stringify({
+          leave_adjustment: nextAdj,
+          leave_adjustment_year: currentYear,
+          annual_total: Number((baseLeave + nextAdj).toFixed(1))
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(`일괄 휴가 부여 실패 (${res.status}: ${err.message || err.msg || res.statusText})`);
+      }
+
+      try {
+        await this.sendNotification(
+          uid,
+          `🎁 관리자가 [${cleanReason}]로 휴가 ${signStr}일을 부여했습니다.`
+        );
+      } catch (e) {
+        console.warn("일괄 휴가 부여 알림 발송 실패:", e);
+      }
+    }
+
+    await this.syncFromCloud();
+  },
+
+  calculateUserLeaveSummary(profile, approvedLeaves, today = new Date()) {
+    return calculateUserLeaveSummary(profile, approvedLeaves, today);
   },
 
   async updateMyProfile(userId, fields) {

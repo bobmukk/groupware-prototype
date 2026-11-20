@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>탱고 클라우드</title>
   <link rel="icon" type="image/svg+xml" href="Tangologo.svg?v=1">
-  <link rel="stylesheet" href="css/style.css?v=20261120-11" />
+  <link rel="stylesheet" href="css/style.css?v=20261120-14" />
 </head>
 <body>
   <!-- 1. 로그인 / 회원가입 화면 -->
@@ -168,8 +168,12 @@
         승인된 재직자 목록에서 <strong>1차 결재자(검토자)</strong>와 <strong>최종 결재권자(승인자)</strong>를 각각 선택해 주세요.
       </p>
       <div class="modal-body" id="approver-modal-list"></div>
-      <div class="modal-footer">
-        <button type="button" id="btn-confirm-approvers" class="btn-primary">결재선 지정 완료</button>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button type="button" id="btn-reset-approvers-modal" class="btn-logout" style="color:#dc2626; border-color:#fecaca;" onclick="App.resetApproverSelection(true)">🔄 선택 초기화</button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn-logout" onclick="document.getElementById('approver-modal').classList.add('hidden')">취소</button>
+          <button type="button" id="btn-confirm-approvers" class="btn-primary">결재선 지정 완료</button>
+        </div>
       </div>
     </div>
   </div>
@@ -232,7 +236,7 @@
 
   <!-- 4-2. 관리자 전용: 기존 임직원 인사 정보 직접 수정 모달 -->
   <div id="admin-edit-user-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width:520px;">
+    <div class="modal-card" style="max-width:540px;">
       <div class="modal-header">
         <h3>✏️ 임직원 인사 정보 수정</h3>
         <button type="button" class="modal-close" onclick="App.closeAdminEditUserModal()">✕</button>
@@ -262,7 +266,11 @@
           <input type="text" id="adm-edit-phone" placeholder="예: 010-1234-5678" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">입사일 (연차 자동 산정 기준)</label>
+          <input type="date" id="adm-edit-hire-date" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
         <div class="form-group">
           <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">시스템 권한</label>
           <select id="adm-edit-role" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;">
@@ -272,9 +280,21 @@
             <option value="ADMIN">시스템 관리자 (ADMIN)</option>
           </select>
         </div>
+      </div>
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:10px;">
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:12.5px; font-weight:600; color:#1e293b; cursor:pointer; line-height:1.4;">
+          <input type="checkbox" id="adm-edit-monthly-accrual" checked style="margin-top:2px;" />
+          <span>입사 1년 미만 월차(월 1개) 자동 발생 적용 (경력직 등 즉시 지급 계약 시 체크 해제)</span>
+        </label>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
         <div class="form-group">
-          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">총 부여 연차 (일)</label>
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">지정 연차 (기본 15일)</label>
           <input type="number" id="adm-edit-annual-total" step="0.5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">당해 수동 조정 (+/- 일)</label>
+          <input type="number" id="adm-edit-leave-adj" value="0" step="0.5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
         </div>
       </div>
       <p id="adm-edit-role-notice" class="hidden" style="font-size:12px; color:#d97706; margin-bottom:12px;">
@@ -289,7 +309,7 @@
 
   <!-- 4-3. 관리자 전용: 신규 임직원 직접 등록 모달 -->
   <div id="admin-create-user-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width:540px;">
+    <div class="modal-card" style="max-width:560px;">
       <div class="modal-header">
         <h3>➕ 신규 임직원 직접 등록 (즉시 승인)</h3>
         <button type="button" class="modal-close" onclick="App.closeAdminCreateUserModal()">✕</button>
@@ -318,11 +338,23 @@
           <input type="text" id="adm-create-pos" placeholder="예: 사원, 대리, 과장" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
         <div class="form-group">
           <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">소속 부서</label>
           <input type="text" id="adm-create-dept" placeholder="예: 개발팀" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
         </div>
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">입사일</label>
+          <input type="date" id="adm-create-hire-date" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+      </div>
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:10px;">
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:12.5px; font-weight:600; color:#1e293b; cursor:pointer; line-height:1.4;">
+          <input type="checkbox" id="adm-create-monthly-accrual" checked style="margin-top:2px;" />
+          <span>입사 1년 미만 월차(월 1개) 자동 발생 적용 (경력직 등 즉시 지급 계약 시 체크 해제)</span>
+        </label>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px;">
         <div class="form-group">
           <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">권한</label>
           <select id="adm-create-role" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;">
@@ -333,8 +365,12 @@
           </select>
         </div>
         <div class="form-group">
-          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">총 연차(일)</label>
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">지정 연차(일)</label>
           <input type="number" id="adm-create-annual-total" value="15" step="0.5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">당해 수동 조정</label>
+          <input type="number" id="adm-create-leave-adj" value="0" step="0.5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
         </div>
       </div>
 
@@ -352,6 +388,41 @@
       <div class="modal-footer">
         <button type="button" class="btn-logout" onclick="App.closeAdminCreateUserModal()">닫기</button>
         <button type="button" id="btn-submit-adm-create" class="btn-primary" onclick="App.submitAdminCreateUser()">임직원 계정 생성하기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4-4. 관리자 전용: 선택 임직원 일괄 휴가 부여/차감 모달 -->
+  <div id="admin-bulk-grant-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:560px;">
+      <div class="modal-header">
+        <h3>🎁 임직원 일괄 휴가 부여 / 조정</h3>
+        <button type="button" class="modal-close" onclick="App.closeAdminBulkGrantModal()">✕</button>
+      </div>
+      <p style="font-size:12.5px; color:#64748b; margin-bottom:10px;">
+        선택한 재직자의 <strong>당해 연도 수동 조정 연차(leave_adjustment)</strong>에 입력한 일수를 누적 가산하며, 각 직원에게 실시간 알림이 발송됩니다.
+      </p>
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px 12px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; color:#1e293b; cursor:pointer;">
+          <input type="checkbox" id="bulk-grant-check-all" checked onchange="App.toggleBulkGrantAll(this.checked)" />
+          <span>전체 선택 / 해제</span>
+        </label>
+        <span id="bulk-grant-count-text" style="font-size:12.5px; font-weight:700; color:#2563eb;">총 0명 중 0명 선택</span>
+      </div>
+      <div id="bulk-grant-user-list" class="modal-body" style="max-height:220px; margin-bottom:12px;"></div>
+      <div style="display:grid; grid-template-columns:140px 1fr; gap:8px; margin-bottom:14px;">
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">부여 일수 (0.5 단위)</label>
+          <input type="number" id="bulk-grant-days" step="0.5" placeholder="예: 3 또는 -1" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px; font-weight:700;" />
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">부여 사유 (필수)</label>
+          <input type="text" id="bulk-grant-reason" placeholder="예: 하계휴가, 창립기념일 포상, 대체휴가" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-logout" onclick="App.closeAdminBulkGrantModal()">취소</button>
+        <button type="button" id="btn-submit-bulk-grant" class="btn-primary" onclick="App.submitAdminBulkGrant()">일괄 휴가 부여 실행</button>
       </div>
     </div>
   </div>
@@ -441,11 +512,11 @@
 
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="js/data.js?v=20261120-11"></script>
-  <script src="js/storage.js?v=20261120-11"></script>
-  <script src="js/auth.js?v=20261120-11"></script>
-  <script src="js/modules/dashboard.js?v=20261120-11"></script>
-  <script src="js/main.js?v=20261120-11"></script>
+  <script src="js/data.js?v=20261120-14"></script>
+  <script src="js/storage.js?v=20261120-14"></script>
+  <script src="js/auth.js?v=20261120-14"></script>
+  <script src="js/modules/dashboard.js?v=20261120-14"></script>
+  <script src="js/main.js?v=20261120-14"></script>
   <script>
     function SwitchAuthTab(mode) {
       const loginForm = document.getElementById("login-form");

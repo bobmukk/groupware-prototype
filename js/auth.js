@@ -185,6 +185,11 @@ const Auth = {
         position: position || "사원",
         role,
         approval_status: approvalStatus,
+        hire_date: new Date().toISOString().slice(0, 10),
+        use_monthly_accrual: true,
+        base_annual_leave: 15,
+        leave_adjustment: 0,
+        leave_adjustment_year: new Date().getFullYear(),
         annual_total: 15,
         annual_used: 0
       };
@@ -225,7 +230,19 @@ const Auth = {
   },
 
   // 관리자 전용: 현재 로그인한 관리자 세션(SafeAuthStore)을 덮어쓰지 않고 신규 임직원 계정 직접 생성 + 즉시 APPROVED 등록
-  async adminCreateUser({ email, password, name, dept, position, role = "USER", annualTotal = 15 }) {
+  async adminCreateUser({
+    email,
+    password,
+    name,
+    dept,
+    position,
+    role = "USER",
+    hireDate = null,
+    useMonthlyAccrual = true,
+    baseAnnualLeave = 15,
+    leaveAdjustment = 0,
+    annualTotal = 15
+  }) {
     try {
       const cleanEmail = (email || "").trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -262,7 +279,14 @@ const Auth = {
 
       const isMasterAdmin = (cleanEmail.toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase());
       const finalRole = isMasterAdmin ? "ADMIN" : (role || "USER");
-      const totalDays = Number.isFinite(Number(annualTotal)) ? Number(annualTotal) : 15;
+      const baseDays = Number.isFinite(Number(baseAnnualLeave))
+        ? Number(baseAnnualLeave)
+        : (Number.isFinite(Number(annualTotal)) ? Number(annualTotal) : 15);
+      const adjDays = Number.isFinite(Number(leaveAdjustment)) ? Number(leaveAdjustment) : 0;
+      const curYear = new Date().getFullYear();
+      const cleanHireDate = (hireDate && /^\d{4}-\d{2}-\d{2}$/.test(String(hireDate).trim()))
+        ? String(hireDate).trim()
+        : null;
 
       const profileRow = {
         id: newUserId,
@@ -272,7 +296,12 @@ const Auth = {
         position: position.trim(),
         role: finalRole,
         approval_status: "APPROVED",
-        annual_total: totalDays,
+        hire_date: cleanHireDate,
+        use_monthly_accrual: Boolean(useMonthlyAccrual),
+        base_annual_leave: baseDays,
+        leave_adjustment: adjDays,
+        leave_adjustment_year: curYear,
+        annual_total: Number((baseDays + adjDays).toFixed(1)),
         annual_used: 0
       };
 
@@ -417,6 +446,16 @@ const Auth = {
   },
 
   mapProfileToUser(p) {
+    const baseLeave = Number.isFinite(Number(p.base_annual_leave ?? p.baseAnnualLeave))
+      ? Number(p.base_annual_leave ?? p.baseAnnualLeave)
+      : Number(p.annual_total ?? p.annualTotal ?? 15);
+    const curYear = new Date().getFullYear();
+    const adjYear = Number(p.leave_adjustment_year ?? p.leaveAdjustmentYear ?? 0);
+    const rawAdj = Number(p.leave_adjustment ?? p.leaveAdjustment ?? 0);
+    const activeAdj = (adjYear === curYear && Number.isFinite(rawAdj)) ? rawAdj : 0;
+    const useMonthly = (p.use_monthly_accrual ?? p.useMonthlyAccrual) !== false;
+    const hireDate = p.hire_date ?? p.hireDate ?? null;
+
     return {
       id: p.id,
       email: p.email,
@@ -425,9 +464,19 @@ const Auth = {
       position: p.position,
       phone: p.phone || "",
       role: p.role || "USER",
-      approvalStatus: p.approval_status || "APPROVED",
-      annualTotal: Number(p.annual_total ?? 15),
-      annualUsed: Number(p.annual_used ?? 0)
+      approvalStatus: p.approval_status || p.approvalStatus || "APPROVED",
+      hireDate,
+      hire_date: hireDate,
+      useMonthlyAccrual: useMonthly,
+      use_monthly_accrual: useMonthly,
+      baseAnnualLeave: baseLeave,
+      base_annual_leave: baseLeave,
+      leaveAdjustment: Number.isFinite(rawAdj) ? rawAdj : 0,
+      leave_adjustment: Number.isFinite(rawAdj) ? rawAdj : 0,
+      leaveAdjustmentYear: adjYear || null,
+      leave_adjustment_year: adjYear || null,
+      annualTotal: Number((baseLeave + activeAdj).toFixed(1)),
+      annualUsed: Number(p.annual_used ?? p.annualUsed ?? 0)
     };
   },
 

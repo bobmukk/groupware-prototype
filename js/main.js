@@ -771,7 +771,7 @@ const App = {
         return `
           <div class="cal-event-bar"
                title="${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
-               style="--lane:${seg.lane}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
+               style="--lane:${seg.lane}; --left-pct:${leftPct}; --width-pct:${widthPct}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
             <span class="bar-name">${seg.doc.applicantName}</span><span class="bar-extra"> ${seg.doc.position} (${seg.doc.leaveType})</span>
           </div>
         `;
@@ -1277,6 +1277,7 @@ const App = {
     if (pageKey === "board") {
       const isAdmin = Auth.isAdmin(user);
       this.attach.b = null;
+      this.attachNames.b = "";
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px;">
           <div class="card-header"><h4>✍️ 사내 게시판 새 글 작성 (${user.name} ${user.position})</h4></div>
@@ -1347,6 +1348,7 @@ const App = {
     if (pageKey === "notice") {
       const canEditNotice = user && user.role === "ADMIN";
       this.attach.n = null;
+      this.attachNames.n = "";
       container.innerHTML = `
         ${canEditNotice ? `
           <div class="card" style="margin-bottom:18px;">
@@ -1520,9 +1522,16 @@ const App = {
     const viewArea = document.getElementById("post-view-area");
     const editArea = document.getElementById("post-edit-area");
     const headerEl = document.getElementById("post-modal-header");
+    const toolsEl = document.getElementById("post-modal-tools");
+    const imgModeGroup = document.getElementById("post-img-mode-group");
+
+    // 모달을 열 때마다 기본 크기('한 화면 맞춤', 기본 너비)로 초기화
+    this.setPostImageMode("fit");
+    this.togglePostModalWide(false);
 
     if (startInEditMode && canManage) {
       headerEl.textContent = type === "notice" ? "✏️ 공지사항 수정" : "✏️ 게시글 수정";
+      if (toolsEl) toolsEl.classList.add("hidden");
       viewArea.classList.add("hidden");
       editArea.classList.remove("hidden");
 
@@ -1540,6 +1549,7 @@ const App = {
       document.getElementById("post-edit-content").value = parsedEdit.text;
       // 기존 첨부 이미지는 미리보기로만 보여주고 Base64 원문은 노출하지 않음
       this.attach.e = parsedEdit.image || null;
+      this.attachNames.e = parsedEdit.image ? "기존 첨부 이미지" : "";
       this.renderAttachPreview("e");
       const editFile = document.getElementById("attach-e-file");
       if (editFile) editFile.value = "";
@@ -1562,15 +1572,30 @@ const App = {
       document.getElementById("post-view-title").textContent = item.title || "";
       const parsedView = this.parsePostContent(item.content);
       const viewContentEl = document.getElementById("post-view-content");
-      viewContentEl.textContent = parsedView.text || (parsedView.image ? "" : "(내용 없음)");
+      viewContentEl.innerHTML = "";
+
+      if (parsedView.text || !parsedView.image) {
+        const textDiv = document.createElement("div");
+        textDiv.className = "post-view-text";
+        textDiv.textContent = parsedView.text || "(내용 없음)";
+        viewContentEl.appendChild(textDiv);
+      }
+
       if (parsedView.image) {
+        const imgWrap = document.createElement("div");
+        imgWrap.className = "post-image-wrap";
         const img = document.createElement("img");
         img.src = parsedView.image;
         img.alt = "첨부 이미지";
         img.className = "post-image";
+        img.title = "클릭하면 전체 화면으로 확대됩니다";
         img.addEventListener("click", () => this.openImageViewer(parsedView.image));
-        viewContentEl.appendChild(img);
+        imgWrap.appendChild(img);
+        viewContentEl.appendChild(imgWrap);
       }
+
+      if (toolsEl) toolsEl.classList.remove("hidden");
+      if (imgModeGroup) imgModeGroup.classList.toggle("hidden", !parsedView.image);
 
       document.getElementById("post-view-actions").innerHTML = `
         ${canManage ? `
@@ -1633,7 +1658,32 @@ const App = {
   closePostModal() {
     this.activePostTarget = null;
     this.attach.e = null;
+    this.attachNames.e = "";
     document.getElementById("post-modal").classList.add("hidden");
+  },
+
+  // 상세 보기 이미지 표시 모드 전환 ('fit': 한 화면에 맞추기 / 'full': 원본 크기로 보기)
+  setPostImageMode(mode = "fit") {
+    const modal = document.getElementById("post-modal");
+    const btnFit = document.getElementById("btn-post-img-fit");
+    const btnFull = document.getElementById("btn-post-img-full");
+    const isFull = mode === "full";
+    if (modal) modal.classList.toggle("post-img-full", isFull);
+    if (btnFit) btnFit.classList.toggle("active", !isFull);
+    if (btnFull) btnFull.classList.toggle("active", isFull);
+  },
+
+  // 상세 보기 모달 너비 토글 (기본 / 창 넓게 보기)
+  togglePostModalWide(forceWide) {
+    const card = document.querySelector("#post-modal .post-modal-card");
+    const btn = document.getElementById("btn-post-wide");
+    if (!card) return;
+    const nextWide = typeof forceWide === "boolean" ? forceWide : !card.classList.contains("wide");
+    card.classList.toggle("wide", nextWide);
+    if (btn) {
+      btn.classList.toggle("active", nextWide);
+      btn.textContent = nextWide ? "↔ 기본 크기로" : "↔ 창 넓게 보기";
+    }
   },
 
   // ===================================================================
@@ -1643,6 +1693,7 @@ const App = {
   // - app_state 한 행에 모든 글이 들어가고 5초마다 동기화되므로, 이미지 1장당 용량 상한(약 300KB)을 둠
   // ===================================================================
   attach: { n: null, b: null, e: null },
+  attachNames: { n: "", b: "", e: "" },
   IMG_MARK: "\n[IMG_DATA:",
   IMG_MAX_WIDTH: 1000,
   IMG_QUALITY: 0.82,
@@ -1677,9 +1728,11 @@ const App = {
   attachWidgetHtml(key) {
     return `
       <div class="attach-box">
-        <label class="attach-btn" for="attach-${key}-file">🖼 이미지 첨부</label>
-        <input type="file" id="attach-${key}-file" accept="image/*" hidden onchange="App.handleImageSelect('${key}', this)" />
-        <span class="attach-hint">가로 1000px 이하로 자동 압축됩니다</span>
+        <div class="attach-controls">
+          <button type="button" class="attach-btn" onclick="document.getElementById('attach-${key}-file').click()">📎 사진 첨부</button>
+          <input type="file" id="attach-${key}-file" accept="image/*" hidden onchange="App.handleImageSelect('${key}', this)" />
+          <span class="attach-hint">* 가로 1000px 이하로 자동 최적화됩니다</span>
+        </div>
         <div id="attach-${key}-preview" class="attach-preview hidden"></div>
       </div>
     `;
@@ -1694,15 +1747,22 @@ const App = {
       box.innerHTML = "";
       return;
     }
+    const rawName = this.attachNames[key] || "첨부 이미지";
+    const esc = (v) => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     box.classList.remove("hidden");
     box.innerHTML = `
       <img src="${img}" alt="미리보기" />
+      <div class="attach-meta">
+        <div class="attach-filename" title="${esc(rawName)}">${esc(rawName)}</div>
+        <div class="attach-status">최적화 완료 (첨부 대기)</div>
+      </div>
       <button type="button" class="attach-remove" onclick="App.removeAttach('${key}')">✕ 삭제</button>
     `;
   },
 
   removeAttach(key) {
     this.attach[key] = null;
+    this.attachNames[key] = "";
     const input = document.getElementById(`attach-${key}-file`);
     if (input) input.value = "";
     this.renderAttachPreview(key);
@@ -1717,6 +1777,7 @@ const App = {
     }
     try {
       this.attach[key] = await this.compressImage(file);
+      this.attachNames[key] = file.name || "첨부 이미지";
       this.renderAttachPreview(key);
     } catch (err) {
       input.value = "";

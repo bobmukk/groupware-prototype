@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>사내 그룹웨어 시스템</title>
-  <link rel="stylesheet" href="css/style.css?v=20261120-3" />
+  <link rel="stylesheet" href="css/style.css?v=20261120-5" />
 </head>
 <body>
   <!-- 1. 로그인 / 회원가입 화면 -->
@@ -213,9 +213,16 @@
 
 <!-- 5. 공지사항 및 게시판 상세 보기 / 관리자 전체 수정 모달 -->
   <div id="post-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width:580px;">
-      <div class="modal-header">
+    <div class="modal-card post-modal-card">
+      <div class="modal-header post-modal-header-bar">
         <h3 id="post-modal-header">📄 게시글 상세</h3>
+        <div id="post-modal-tools" class="post-modal-tools hidden">
+          <div id="post-img-mode-group" class="post-tool-group hidden" role="group" aria-label="이미지 보기 크기">
+            <button type="button" id="btn-post-img-fit" class="post-tool-btn active" onclick="App.setPostImageMode('fit')">한 화면에 맞추기</button>
+            <button type="button" id="btn-post-img-full" class="post-tool-btn" onclick="App.setPostImageMode('full')">원본 크기로 보기</button>
+          </div>
+          <button type="button" id="btn-post-wide" class="post-tool-btn" onclick="App.togglePostModalWide()">↔ 창 넓게 보기</button>
+        </div>
         <button type="button" class="modal-close" onclick="App.closePostModal()">✕</button>
       </div>
 
@@ -226,7 +233,7 @@
           <span id="post-view-meta" style="font-size:12px; color:#64748b;"></span>
         </div>
         <h4 id="post-view-title" style="font-size:17px; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;"></h4>
-        <div id="post-view-content" style="min-height:110px; max-height:60vh; overflow-y:auto; white-space:pre-wrap; font-size:13.5px; color:#334155; line-height:1.65; margin-bottom:16px;"></div>
+        <div id="post-view-content" class="post-view-content"></div>
         <div class="modal-footer" id="post-view-actions"></div>
       </div>
 
@@ -265,9 +272,11 @@
           <label style="font-size:12px; color:#64748b; display:block; margin-bottom:4px;">상세 내용</label>
           <textarea id="post-edit-content" rows="5" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
           <div class="attach-box">
-            <label class="attach-btn" for="attach-e-file">🖼 이미지 첨부</label>
-            <input type="file" id="attach-e-file" accept="image/*" hidden onchange="App.handleImageSelect('e', this)" />
-            <span class="attach-hint">가로 1000px 이하로 자동 압축됩니다</span>
+            <div class="attach-controls">
+              <button type="button" class="attach-btn" onclick="document.getElementById('attach-e-file').click()">📎 사진 첨부</button>
+              <input type="file" id="attach-e-file" accept="image/*" hidden onchange="App.handleImageSelect('e', this)" />
+              <span class="attach-hint">* 가로 1000px 이하로 자동 최적화됩니다</span>
+            </div>
             <div id="attach-e-preview" class="attach-preview hidden"></div>
           </div>
         </div>
@@ -287,11 +296,11 @@
 
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="js/data.js?v=20261120-2"></script>
-  <script src="js/storage.js?v=20261120-2"></script>
-  <script src="js/auth.js?v=20261120-2"></script>
-  <script src="js/modules/dashboard.js?v=20261120-2"></script>
-  <script src="js/main.js?v=20261120-2"></script>
+  <script src="js/data.js?v=20261120-5"></script>
+  <script src="js/storage.js?v=20261120-5"></script>
+  <script src="js/auth.js?v=20261120-5"></script>
+  <script src="js/modules/dashboard.js?v=20261120-5"></script>
+  <script src="js/main.js?v=20261120-5"></script>
   <script>
     function SwitchAuthTab(mode) {
       const loginForm = document.getElementById("login-form");

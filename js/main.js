@@ -1354,6 +1354,8 @@ const App = {
                 <tbody>
                   ${reviewUsers.map(u => {
                     const isRejected = u.approvalStatus === "REJECTED";
+                    const isSelfRow = String(u.id) === String(user.id)
+                      || (u.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
                     return `
                     <tr>
                       <td><strong>${u.name}</strong></td>
@@ -1372,9 +1374,9 @@ const App = {
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff;" onclick="App.openAdminEditUserModal('${u.id}')">✏️ 정보 수정</button>
                           ${!isRejected ? `
                             <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 가입 반려</button>
-                          ` : `
+                          ` : !isSelfRow ? `
                             <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#64748b;" onclick="App.deleteUserAccount('${u.id}')">🗑️ 완전 삭제</button>
-                          `}
+                          ` : ""}
                         </div>
                       </td>
                     </tr>
@@ -1434,7 +1436,8 @@ const App = {
                 const t = Number(u.annualTotal ?? 15);
                 const used = Number(u.annualUsed ?? 0);
                 const rem = Number((t - used).toFixed(1));
-                const isMasterRow = (u.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
+                const isSelfOrMasterRow = String(u.id) === String(user.id)
+                  || (u.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase();
                 const statusBadgeHtml = u.approvalStatus === "APPROVED"
                   ? `<span class="status-badge status-APPROVED">✅ 승인됨</span>`
                   : u.approvalStatus === "REJECTED"
@@ -1457,11 +1460,11 @@ const App = {
                         ` : u.approvalStatus === "PENDING" ? `
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#047857; border-color:#a7f3d0;" onclick="App.approveUserAccount('${u.id}', 'APPROVED')">✅ 승인</button>
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 반려</button>
-                        ` : !isMasterRow ? `
+                        ` : !isSelfOrMasterRow ? `
                           <button class="btn-logout" style="padding:5px 10px; font-size:12px; color:#dc2626; border-color:#fecaca;" onclick="App.approveUserAccount('${u.id}', 'REJECTED')">⛔ 반려(중지)</button>
                         ` : ""}
-                        ${!isMasterRow ? `
-                          <button class="btn-logout" title="프로필 완전 삭제" style="padding:5px 8px; font-size:12px; color:#64748b;" onclick="App.deleteUserAccount('${u.id}')">🗑️</button>
+                        ${!isSelfOrMasterRow ? `
+                          <button class="btn-logout" title="프로필 및 로그인 계정 완전 삭제" style="padding:5px 8px; font-size:12px; color:#64748b;" onclick="App.deleteUserAccount('${u.id}')">🗑️</button>
                         ` : ""}
                       </div>
                     </td>
@@ -1755,34 +1758,45 @@ const App = {
     }
   },
 
-  // 직원 프로필 완전 삭제 (auth.users와 불일치 방지를 위한 안내 포함)
+  // 직원 프로필 + 로그인 계정(auth.users) 완전 삭제 (public.admin_delete_user RPC 호출)
   async deleteUserAccount(targetUserId) {
     try {
+      const currentUser = Auth.getCurrentUser();
+      if (!Auth.isAdmin(currentUser)) {
+        return alert("⛔ 시스템 관리자만 계정을 삭제할 수 있습니다.");
+      }
+      if (String(targetUserId) === String(currentUser.id)) {
+        return alert("⚠️ 현재 로그인한 관리자 본인의 계정은 삭제할 수 없습니다.");
+      }
+
       const db = StorageDB.getData();
       const targetUser = (db.users || []).find(u => String(u.id) === String(targetUserId));
+      if (targetUser && (targetUser.email || "").trim().toLowerCase() === MASTER_ADMIN_EMAIL.trim().toLowerCase()) {
+        return alert("⚠️ 마스터 관리자 계정은 삭제할 수 없습니다.");
+      }
       const targetLabel = targetUser ? `${targetUser.name} (${targetUser.email || "-"})` : targetUserId;
 
       const confirmed = confirm(
-        `[${targetLabel}] 직원 프로필을 완전히 삭제하시겠습니까?\n\n` +
-        `⚠️ 중요: Supabase Authentication에서도 해당 이메일을 함께 삭제해야 동일 이메일 재가입이 가능합니다.\n` +
+        `[${targetLabel}] 계정을 완전히 삭제하시겠습니까?\n\n` +
+        `⚠️ 프로필과 로그인 계정이 모두 영구 삭제되며 복구할 수 없습니다.\n` +
         `(단순 로그인 차단이나 반려 목적이라면 삭제 대신 '가입 반려' 기능을 사용해 주세요.)`
       );
       if (!confirmed) return;
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${targetUserId}`, {
-        method: "DELETE",
-        headers: StorageDB.getHeaders()
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(`프로필 삭제 실패 (${res.status}: ${err.message || err.msg || res.statusText})`);
+      await StorageDB.adminDeleteUser(targetUserId);
+
+      // 선택된 결재선에 삭제된 직원이 포함되어 있으면 초기화
+      if (this.selectedApprover1 && String(this.selectedApprover1.id) === String(targetUserId)) {
+        this.selectedApprover1 = null;
+      }
+      if (this.selectedApprover2 && String(this.selectedApprover2.id) === String(targetUserId)) {
+        this.selectedApprover2 = null;
       }
 
-      await StorageDB.syncFromCloud();
-      this.showToast(`🗑️ ${targetLabel} 프로필이 삭제되었습니다. (재가입 시 Supabase Auth에서도 삭제 필요)`);
-      this.navigateTo("admin");
+      this.showToast(`🗑️ ${targetLabel}의 프로필과 로그인 계정이 영구 삭제되었습니다.`);
+      this.navigateTo(this.currentPage || "admin", false);
     } catch (err) {
-      alert(err.message);
+      alert(`⚠️ 계정 삭제 실패: ${err.message}`);
     }
   },
 

@@ -375,6 +375,34 @@ const StorageDB = {
     return rows[0];
   },
 
+  // 관리자 전용: public.admin_delete_user RPC 호출로 profiles + auth.users 계정 일괄 영구 삭제
+  async adminDeleteUser(targetUserId) {
+    if (!targetUserId) throw new Error("삭제할 대상 직원 ID가 없습니다.");
+    if (typeof Auth !== "undefined" && typeof Auth.refreshSessionIfNeeded === "function") {
+      await Auth.refreshSessionIfNeeded();
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/admin_delete_user`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ target_user_id: targetUserId })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const serverMsg = err.message || err.msg || err.details || err.hint || err.error || res.statusText || "계정 영구 삭제에 실패했습니다.";
+      throw new Error(serverMsg);
+    }
+
+    // 로컬 캐시(직원 목록·조직도)에서 즉시 제거 후 클라우드 동기화
+    const localDb = this.getData();
+    if (Array.isArray(localDb.users)) {
+      localDb.users = localDb.users.filter(u => String(u.id) !== String(targetUserId));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localDb));
+    }
+    await this.syncFromCloud();
+  },
+
   async sendNotification(receiverId, message) {
     if (!receiverId) return;
     try {

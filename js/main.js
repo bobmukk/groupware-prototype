@@ -748,12 +748,12 @@ const App = {
         const isSun = idx === 0;
         const isSat = idx === 6;
         const numColor = (isSun || holName) ? "#dc2626" : isSat ? "#2563eb" : "#1e293b";
-        const todayBadge = dStr === todayStr ? `<span style="background:#2563eb; color:#fff; padding:1px 5px; border-radius:4px; font-size:10px;">오늘</span>` : "";
+        const todayBadge = dStr === todayStr ? `<span class="cal-today-badge" style="background:#2563eb; color:#fff; padding:1px 5px; border-radius:4px; font-size:10px;">오늘</span>` : "";
 
         return `
-          <div class="cal-day-cell ${isCurrentMonth ? '' : 'other-month'}">
+          <div class="cal-day-cell ${isCurrentMonth ? '' : 'other-month'} ${dStr === todayStr ? 'is-today' : ''}">
             <div class="cal-day-num" style="color:${isCurrentMonth ? numColor : '#cbd5e1'};">
-              <span>${d.getDate()} ${todayBadge}</span>
+              <span class="cal-day-no">${d.getDate()} ${todayBadge}</span>
               ${holName ? `<span class="cal-hol-label" title="${holName}">${holName}</span>` : ""}
             </div>
           </div>
@@ -771,14 +771,14 @@ const App = {
         return `
           <div class="cal-event-bar"
                title="${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.dept}) | ${seg.doc.leaveType} (${seg.doc.startDate} ~ ${seg.doc.endDate}, 실차감 ${seg.doc.days}일)"
-               style="left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
-            ${seg.doc.applicantName} ${seg.doc.position} (${seg.doc.leaveType})
+               style="--lane:${seg.lane}; left: calc(${leftPct}% + 3px); width: calc(${widthPct}% - 6px); top: ${topPx}px; background: ${bgColor}; border-radius: ${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft};">
+            <span class="bar-name">${seg.doc.applicantName}</span><span class="bar-extra"> ${seg.doc.position} (${seg.doc.leaveType})</span>
           </div>
         `;
       }).join("");
 
       return `
-        <div class="cal-week-row" style="min-height: ${rowHeight}px;">
+        <div class="cal-week-row" style="--lanes:${lanes.length}; min-height: ${rowHeight}px;">
           <div class="cal-day-cells">${dayCellsHtml}</div>
           <div class="cal-events-layer">${barsHtml}</div>
         </div>

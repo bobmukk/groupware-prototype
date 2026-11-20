@@ -564,29 +564,55 @@ const App = {
 
   // ===================================================================
   // 작성자·신청자 최신 프로필 실시간 매핑 헬퍼 (DB 과거 행은 수정하지 않고 렌더링 시점에만 매핑)
+  // 매핑 우선순위: 1차 ID(authorId/author_id/user_id) ➔ 2차 Email(authorEmail/author_email/email)
+  //               ➔ 3차 과거 데이터(ID·Email 누락 시) 성명 토큰 매핑 ➔ 4차 저장된 텍스트 폴백
   // ===================================================================
   resolvePostAuthor(post, users) {
     const list = Array.isArray(users) ? users : (StorageDB.getData().users || []);
     const uid = post?.authorId || post?.author_id || post?.user_id || post?.userId;
+    const rawEmail = (post?.authorEmail || post?.author_email || post?.email || post?.user_email || "").trim().toLowerCase();
+    const rawAuthor = String(post?.author || post?.author_name || "").trim();
+
+    let matched = null;
+
+    // 1차: 프로필 ID 매핑
     if (uid) {
-      const matched = list.find(u => String(u.id) === String(uid));
-      if (matched) {
-        const name = matched.name || "-";
-        const position = matched.position || "";
-        const dept = matched.dept || post?.dept || "";
-        return {
-          id: matched.id,
-          name,
-          position,
-          dept,
-          label: `${name}${position ? " " + position : ""}`.trim(),
-          matched: true
-        };
+      matched = list.find(u => String(u.id) === String(uid)) || null;
+    }
+
+    // 2차: 이메일 폴백 매핑
+    if (!matched && rawEmail) {
+      matched = list.find(u => (u.email || "").trim().toLowerCase() === rawEmail) || null;
+    }
+
+    // 3차: 과거 게시글에 ID와 이메일이 모두 null인 경우, 저장된 작성자 문자열("이름 직급")의 성명으로 프로필 매핑
+    if (!matched && !uid && !rawEmail && rawAuthor) {
+      const nameToken = rawAuthor.split(/\s+/)[0];
+      const candidates = list.filter(u => u.name && (u.name === rawAuthor || u.name === nameToken));
+      if (candidates.length === 1) {
+        matched = candidates[0];
       }
     }
-    const fallbackLabel = post?.author || post?.author_name || "-";
+
+    if (matched) {
+      const name = matched.name || "-";
+      const position = matched.position || "";
+      const dept = matched.dept || post?.dept || "";
+      return {
+        id: matched.id,
+        email: matched.email || rawEmail || "",
+        name,
+        position,
+        dept,
+        label: `${name}${position ? " " + position : ""}`.trim(),
+        matched: true
+      };
+    }
+
+    const fallbackLabel = rawAuthor || "-";
     return {
       id: uid || null,
+      email: rawEmail || "",
       name: fallbackLabel,
       position: "",
       dept: post?.dept || "",
@@ -1555,6 +1581,8 @@ const App = {
           title,
           content,
           authorId: user.id,
+          author_id: user.id,
+          authorEmail: myProfile.email || user.email || "",
           author: `${myProfile.name} ${myProfile.position}`.trim(),
           dept: myProfile.dept,
           date: new Date().toISOString().slice(0, 10)
@@ -1636,6 +1664,8 @@ const App = {
             content,
             pinned,
             authorId: user.id,
+            author_id: user.id,
+            authorEmail: myProfile.email || user.email || "",
             author: `${myProfile.name} ${myProfile.position}`.trim(),
             dept: myProfile.dept,
             date: new Date().toISOString().slice(0, 10)
@@ -2102,6 +2132,31 @@ const App = {
         viewContentEl.appendChild(imgWrap);
       }
 
+      // 댓글(comments) 배열이 존재하는 게시글인 경우 댓글 작성자도 최신 프로필로 매핑해 표시
+      if (Array.isArray(item.comments) && item.comments.length > 0) {
+        const cmtWrap = document.createElement("div");
+        cmtWrap.style.cssText = "margin-top:16px; padding-top:12px; border-top:1px dashed #e2e8f0;";
+        const esc = (v) => String(v || "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+        cmtWrap.innerHTML = `
+          <div style="font-size:12.5px; font-weight:700; color:#475569; margin-bottom:8px;">💬 댓글 (${item.comments.length})</div>
+          ${item.comments.map(c => {
+            const cAuthor = this.resolvePostAuthor(c, db.users);
+            const cText = c.content || c.text || c.comment || "";
+            const cDate = c.date || (c.created_at ? String(c.created_at).slice(0, 10) : "");
+            return `
+              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:13px;">
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:#64748b; margin-bottom:3px;">
+                  <strong style="color:#1e293b;">${esc(cAuthor.label)}</strong>
+                  <span>${esc(cDate)}</span>
+                </div>
+                <div style="color:#334155; white-space:pre-wrap;">${esc(cText)}</div>
+              </div>
+            `;
+          }).join("")}
+        `;
+        viewContentEl.appendChild(cmtWrap);
+      }
+
       if (toolsEl) toolsEl.classList.remove("hidden");
       if (imgModeGroup) imgModeGroup.classList.toggle("hidden", !parsedView.image);
 
@@ -2145,6 +2200,12 @@ const App = {
         `${u.name} ${u.position || ""}`.trim() === author || u.name === author
       );
       list[idx].authorId = matchedUser ? matchedUser.id : null;
+      list[idx].author_id = matchedUser ? matchedUser.id : null;
+      list[idx].authorEmail = matchedUser ? (matchedUser.email || "") : "";
+    } else if (prevAuthorInfo.matched) {
+      list[idx].authorId = prevAuthorInfo.id;
+      list[idx].author_id = prevAuthorInfo.id;
+      if (prevAuthorInfo.email) list[idx].authorEmail = prevAuthorInfo.email;
     }
     list[idx].content = content;
     if (type === "notice") {

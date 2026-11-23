@@ -698,6 +698,35 @@ const App = {
     };
   },
 
+  // 결재 문서 열람 권한 판별 및 필터링 헬퍼
+  // - 관리자(role === 'ADMIN') 또는 대표(role === 'CEO' / 직급 '대표' 포함): 전체 결재 문서 열람 가능
+  // - 그 외 사용자: 본인 신청 문서(applicantId) 또는 본인 결재선 포함 문서(approver1Id, approver2Id, approvers)만 열람 가능
+  canViewLeaveDoc(doc, user) {
+    if (!doc || !user) return false;
+    const role = String(user.role || "").toUpperCase();
+    const pos = String(user.position || "");
+    if (role === "ADMIN" || role === "CEO" || pos.includes("대표")) {
+      return true;
+    }
+
+    const uid = String(user.id || "");
+    if (!uid) return false;
+
+    const isApplicant = String(doc.applicantId ?? doc.applicant_id ?? "") === uid;
+    const isApprover1 = String(doc.approver1Id ?? doc.approver1_id ?? "") === uid;
+    const isApprover2 = String(doc.approver2Id ?? doc.approver2_id ?? "") === uid;
+    const inApproversArray = Array.isArray(doc.approvers) && doc.approvers.some(a =>
+      String(a?.id ?? a?.userId ?? a?.user_id ?? a ?? "") === uid
+    );
+
+    return isApplicant || isApprover1 || isApprover2 || inApproversArray;
+  },
+
+  filterVisibleLeaveDocs(docs, user) {
+    const list = Array.isArray(docs) ? docs : [];
+    return list.filter(doc => this.canViewLeaveDoc(doc, user));
+  },
+
   updateNotificationBadge(notifs) {
     const badge = document.getElementById("notif-badge");
     if (!badge) return;
@@ -1220,6 +1249,7 @@ const App = {
       const ap2Text = this.selectedApprover2 ? `${this.selectedApprover2.name} ${this.selectedApprover2.position || ""}` : "미지정";
       const todayStr = new Date().toISOString().slice(0, 10);
       const isEditing = Boolean(this.editingLeaveDocId);
+      const visibleLeaveRequests = this.filterVisibleLeaveDocs(db.leaveRequests || [], myProfile);
 
       container.innerHTML = `
         <div class="card" style="margin-bottom:18px; background:linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%); border:1px solid #bfdbfe;">
@@ -1305,8 +1335,8 @@ const App = {
           <table class="list-table">
             <thead><tr><th>신청자</th><th>휴가종류 / 실차감일수</th><th>1차 결재자</th><th>최종 결재권자</th><th>현재 상태</th><th>결재 / 수정·취소</th></tr></thead>
             <tbody>
-              ${(db.leaveRequests || []).length === 0 ? `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">조회된 휴가 신청 내역이 없습니다.</td></tr>` : ""}
-              ${(db.leaveRequests || []).map(doc => {
+              ${visibleLeaveRequests.length === 0 ? `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">조회된 휴가 신청 내역이 없습니다.</td></tr>` : ""}
+              ${visibleLeaveRequests.map(doc => {
                 const actor = this.resolveLeaveActors(doc, db.users);
                 const isTurnStep1 = (doc.status === "PENDING_1" || doc.status === "PENDING") && doc.approver1Id === user.id;
                 const isTurnStep2 = (doc.status === "PENDING_2" || doc.status === "IN_PROGRESS") && doc.approver2Id === user.id;

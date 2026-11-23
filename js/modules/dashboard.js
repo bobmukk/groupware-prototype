@@ -39,7 +39,20 @@ const DashboardModule = {
     // 3) 승인 완료된 전체 재직자 수
     const activeUsersCount = (db.users || []).filter(u => u.approvalStatus === "APPROVED").length || 1;
 
-    const recentLeaves = allLeaves.slice(0, 5);
+    // 4) 권한별 열람 가능한 결재 문서만 필터링 후 최근 5건 추출
+    const visibleLeaves = (typeof App !== "undefined" && typeof App.filterVisibleLeaveDocs === "function")
+      ? App.filterVisibleLeaveDocs(allLeaves, myProfile)
+      : allLeaves.filter(doc => {
+          const role = String(myProfile.role || "").toUpperCase();
+          const pos = String(myProfile.position || "");
+          if (role === "ADMIN" || role === "CEO" || pos.includes("대표")) return true;
+          const uid = String(myProfile.id || "");
+          return String(doc.applicantId ?? doc.applicant_id ?? "") === uid
+            || String(doc.approver1Id ?? doc.approver1_id ?? "") === uid
+            || String(doc.approver2Id ?? doc.approver2_id ?? "") === uid;
+        });
+
+    const recentLeaves = visibleLeaves.slice(0, 5);
     const recentNotices = (db.notices || []).slice(0, 5);
 
     container.innerHTML = `

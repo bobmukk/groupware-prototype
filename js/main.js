@@ -3,6 +3,7 @@
  */
 const PAGE_TITLES = {
   "dashboard": "대시보드",
+  "attendance": "근태관리",
   "approval": "전자결재 및 휴가 신청",
   "leave-calendar": "전사 휴가 캘린더",
   "organization": "재직자 조직도",
@@ -749,6 +750,12 @@ const App = {
 
     if (validPage === "dashboard") {
       DashboardModule.render(container, user);
+      return;
+    }
+    if (validPage === "attendance") {
+      if (typeof AttendanceModule !== "undefined" && typeof AttendanceModule.renderPage === "function") {
+        AttendanceModule.renderPage("page-content");
+      }
       return;
     }
     this.renderSubPageContent(container, validPage, user);

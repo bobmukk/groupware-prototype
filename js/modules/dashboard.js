@@ -55,6 +55,9 @@ const DashboardModule = {
         </div>
       </div>
 
+      <!-- 대시보드 상단 근태관리 위젯 -->
+      <div id="dashboard-attendance-widget"></div>
+
       <!-- 핵심 요약 KPI 카드 4종 (클릭 시 해당 메뉴로 즉시 이동) -->
       <div class="kpi-grid">
         <div class="kpi-card" onclick="App.navigateTo('approval')">
@@ -147,5 +150,9 @@ const DashboardModule = {
         </div>
       </div>
     `;
+
+    if (typeof AttendanceModule !== "undefined" && typeof AttendanceModule.renderWidget === "function") {
+      AttendanceModule.renderWidget("dashboard-attendance-widget");
+    }
   }
 };

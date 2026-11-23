@@ -95,6 +95,7 @@
         <div class="nav-group">
           <div class="nav-group-title">A. 업무 관리</div>
           <button class="nav-item active" data-page="dashboard">📊 대시보드</button>
+          <button class="nav-item" data-page="attendance">⏰ 근태관리</button>
           <button class="nav-item" data-page="approval">📝 전자결재 (휴가신청)</button>
           <button class="nav-item" data-page="leave-calendar">📅 휴가 캘린더</button>
         </div>
@@ -516,6 +517,8 @@
   <script src="js/storage.js?v=20261120-14"></script>
   <script src="js/auth.js?v=20261120-14"></script>
   <script src="js/modules/dashboard.js?v=20261120-14"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="js/modules/attendance.js"></script>
   <script src="js/main.js?v=20261120-14"></script>
   <script>
     function SwitchAuthTab(mode) {

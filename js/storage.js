@@ -14,8 +14,10 @@ const STATE_ROW_ID = "company_main_state";
 function getSeedData() {
   const base = (typeof INITIAL_SEED_DATA !== "undefined" && INITIAL_SEED_DATA)
     ? INITIAL_SEED_DATA
-    : { users: [], departments: [], leaveRequests: [], notices: [], boardPosts: [], notifications: [] };
-  return JSON.parse(JSON.stringify(base));
+    : { users: [], departments: [], leaveRequests: [], notices: [], boardPosts: [], notifications: [], boardComments: [] };
+  const cloned = JSON.parse(JSON.stringify(base));
+  if (!Array.isArray(cloned.boardComments)) cloned.boardComments = [];
+  return cloned;
 }
 
 /**
@@ -263,6 +265,17 @@ const StorageDB = {
           const notifs = await notifRes.json();
           if (Array.isArray(notifs)) {
             localDb.notifications = notifs;
+            hasChanged = true;
+          }
+        }
+
+        const cmtRes = await fetch(`${SUPABASE_URL}/rest/v1/board_comments?select=*&order=created_at.asc`, {
+          headers: this.getHeaders()
+        });
+        if (cmtRes.ok) {
+          const cmts = await cmtRes.json();
+          if (Array.isArray(cmts)) {
+            localDb.boardComments = cmts;
             hasChanged = true;
           }
         }
@@ -665,6 +678,95 @@ const StorageDB = {
     await this.syncFromCloud();
   },
 
+  // ===================================================================
+  // 게시판 댓글 (public.board_comments) REST API 조회 / 등록 / 삭제
+  // ===================================================================
+  async fetchBoardComments(postId) {
+    const pid = String(postId ?? "").trim();
+    if (!pid) return [];
+
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/board_comments?post_id=eq.${encodeURIComponent(pid)}&select=*&order=created_at.asc`,
+      { headers: this.getHeaders() }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || "댓글 목록을 불러오지 못했습니다.");
+    }
+    const rows = await res.json().catch(() => []);
+    const list = Array.isArray(rows) ? rows : [];
+
+    // 로컬 캐시(목록 댓글 개수 표시용) 동기화
+    const localDb = this.getData();
+    const others = (localDb.boardComments || []).filter(c => String(c.post_id) !== pid);
+    localDb.boardComments = [...others, ...list];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(localDb));
+
+    return list;
+  },
+
+  async createBoardComment(payload) {
+    const body = {
+      post_id: String(payload?.post_id ?? ""),
+      author_id: String(payload?.author_id ?? ""),
+      author_name: String(payload?.author_name ?? ""),
+      author_dept: String(payload?.author_dept ?? ""),
+      author_position: String(payload?.author_position ?? ""),
+      content: String(payload?.content ?? "")
+    };
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/board_comments`, {
+      method: "POST",
+      headers: { ...this.getHeaders(true), "Prefer": "return=representation" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || "댓글 등록에 실패했습니다.");
+    }
+    const created = await res.json().catch(() => []);
+    return Array.isArray(created) ? created[0] : created;
+  },
+
+  async deleteBoardComment(commentId) {
+    const cid = String(commentId ?? "").trim();
+    if (!cid) throw new Error("삭제할 댓글 ID가 없습니다.");
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/board_comments?id=eq.${encodeURIComponent(cid)}`, {
+      method: "DELETE",
+      headers: this.getHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || "댓글 삭제에 실패했습니다.");
+    }
+
+    const localDb = this.getData();
+    if (Array.isArray(localDb.boardComments)) {
+      localDb.boardComments = localDb.boardComments.filter(c => String(c.id) !== cid);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localDb));
+    }
+  },
+
+  async deleteBoardCommentsByPostId(postId) {
+    const pid = String(postId ?? "").trim();
+    if (!pid) return;
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/board_comments?post_id=eq.${encodeURIComponent(pid)}`, {
+      method: "DELETE",
+      headers: this.getHeaders()
+    });
+    if (!res.ok) {
+      console.warn("게시글 연관 댓글 정리 실패:", res.status);
+    }
+
+    const localDb = this.getData();
+    if (Array.isArray(localDb.boardComments)) {
+      localDb.boardComments = localDb.boardComments.filter(c => String(c.post_id) !== pid);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localDb));
+    }
+  },
+
   async pushToCloud(dataObj) {
     if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.includes("여기에_")) return;
     try {
@@ -693,7 +795,7 @@ const StorageDB = {
     try {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return getSeedData();
-      ["users", "departments", "leaveRequests", "notices", "boardPosts", "notifications"].forEach(k => {
+      ["users", "departments", "leaveRequests", "notices", "boardPosts", "notifications", "boardComments"].forEach(k => {
         if (!Array.isArray(parsed[k])) parsed[k] = [];
       });
       return parsed;

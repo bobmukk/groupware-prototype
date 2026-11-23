@@ -451,6 +451,19 @@
         </div>
         <h4 id="post-view-title" style="font-size:17px; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;"></h4>
         <div id="post-view-content" class="post-view-content"></div>
+
+        <!-- 댓글 영역 (작성 시간 오름차순 목록 + 작성 폼) -->
+        <div id="post-comments-section" class="post-comments-section">
+          <div class="post-comments-header">
+            <span>💬 댓글 <strong id="post-comments-count">0</strong>건</span>
+          </div>
+          <div id="post-comments-list" class="post-comments-list"></div>
+          <div class="post-comment-form">
+            <textarea id="post-comment-input" rows="2" placeholder="댓글을 입력하세요..."></textarea>
+            <button type="button" id="btn-submit-comment" class="btn-primary post-comment-submit" onclick="App.submitPostComment()">댓글 등록</button>
+          </div>
+        </div>
+
         <div class="modal-footer" id="post-view-actions"></div>
       </div>
 
@@ -513,13 +526,13 @@
 
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="js/data.js?v=20261120-14"></script>
-  <script src="js/storage.js?v=20261120-14"></script>
-  <script src="js/auth.js?v=20261120-14"></script>
-  <script src="js/modules/dashboard.js?v=20261120-14"></script>
+  <script src="js/data.js?v=20261120-15"></script>
+  <script src="js/storage.js?v=20261120-15"></script>
+  <script src="js/auth.js?v=20261120-15"></script>
+  <script src="js/modules/dashboard.js?v=20261120-15"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" async></script>
   <script src="js/modules/attendance.js"></script>
-  <script src="js/main.js?v=20261120-14"></script>
+  <script src="js/main.js?v=20261120-15"></script>
   <script>
     function SwitchAuthTab(mode) {
       const loginForm = document.getElementById("login-form");

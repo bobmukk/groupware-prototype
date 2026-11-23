@@ -1766,6 +1766,8 @@ const App = {
               ${(db.boardPosts || []).length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">등록된 게시글이 없습니다.</td></tr>` : ""}
               ${(db.boardPosts || []).map((b, idx) => {
                 const authorInfo = this.resolvePostAuthor(b, db.users);
+                const postId = this.getPostId(b, "board", idx);
+                const cmtCount = this.getPostCommentCount(postId, db);
                 const isOwnPost = (b.authorId && String(b.authorId) === String(user.id))
                   || (b.author || "").includes(user.name)
                   || (authorInfo.label || "").includes(myProfile.name);
@@ -1774,7 +1776,7 @@ const App = {
                   <tr>
                     <td><span class="status-badge status-IN_PROGRESS">${b.category}</span></td>
                     <td style="cursor:pointer;" onclick="App.openPostModal('board', ${idx}, false)">
-                      <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${b.title}</strong><br/>
+                      <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${this.escapeHtml(b.title)}</strong><span class="post-comment-count" data-comment-count-for="${this.escapeHtml(postId)}">${cmtCount > 0 ? `[${cmtCount}]` : ""}</span><br/>
                       <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(b.content)}</span>
                     </td>
                     <td>${authorInfo.label}</td>
@@ -1852,11 +1854,13 @@ const App = {
               ${(db.notices || []).length === 0 ? `<tr><td colspan="${canEditNotice ? 5 : 4}" style="text-align:center; padding:20px; color:#94a3b8;">등록된 공지사항이 없습니다.</td></tr>` : ""}
               ${(db.notices || []).map((n, idx) => {
                 const authorInfo = this.resolvePostAuthor(n, db.users);
+                const postId = this.getPostId(n, "notice", idx);
+                const cmtCount = this.getPostCommentCount(postId, db);
                 return `
                 <tr>
                   <td>${n.pinned ? '<span class="status-badge status-REJECTED">중요</span>' : '<span class="status-badge status-IN_PROGRESS">일반</span>'}</td>
                   <td style="cursor:pointer;" onclick="App.openPostModal('notice', ${idx}, false)">
-                    <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${n.title}</strong><br/>
+                    <strong style="color:#1e3a8a; text-decoration:underline; text-underline-offset:3px;">${this.escapeHtml(n.title)}</strong><span class="post-comment-count" data-comment-count-for="${this.escapeHtml(postId)}">${cmtCount > 0 ? `[${cmtCount}]` : ""}</span><br/>
                     <span style="color:#64748b; font-size:12px;">${this.postPreviewHtml(n.content)}</span>
                   </td>
                   <td>${authorInfo.label}</td>
@@ -2545,30 +2549,16 @@ const App = {
         viewContentEl.appendChild(imgWrap);
       }
 
-      // 댓글(comments) 배열이 존재하는 게시글인 경우 댓글 작성자도 최신 프로필로 매핑해 표시
-      if (Array.isArray(item.comments) && item.comments.length > 0) {
-        const cmtWrap = document.createElement("div");
-        cmtWrap.style.cssText = "margin-top:16px; padding-top:12px; border-top:1px dashed #e2e8f0;";
-        const esc = (v) => String(v || "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-        cmtWrap.innerHTML = `
-          <div style="font-size:12.5px; font-weight:700; color:#475569; margin-bottom:8px;">💬 댓글 (${item.comments.length})</div>
-          ${item.comments.map(c => {
-            const cAuthor = this.resolvePostAuthor(c, db.users);
-            const cText = c.content || c.text || c.comment || "";
-            const cDate = c.date || (c.created_at ? String(c.created_at).slice(0, 10) : "");
-            return `
-              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:13px;">
-                <div style="display:flex; justify-content:space-between; font-size:12px; color:#64748b; margin-bottom:3px;">
-                  <strong style="color:#1e293b;">${esc(cAuthor.label)}</strong>
-                  <span>${esc(cDate)}</span>
-                </div>
-                <div style="color:#334155; white-space:pre-wrap;">${esc(cText)}</div>
-              </div>
-            `;
-          }).join("")}
-        `;
-        viewContentEl.appendChild(cmtWrap);
-      }
+      // 댓글 입력창 초기화 및 해당 게시글(post_id)의 댓글 목록 로드
+      const postId = this.getPostId(item, type, idx);
+      this.activePostTarget.postId = postId;
+      const cmtInput = document.getElementById("post-comment-input");
+      if (cmtInput) cmtInput.value = "";
+      const cachedComments = (db.boardComments || [])
+        .filter(c => String(c.post_id) === postId)
+        .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+      this.renderPostCommentsList(cachedComments);
+      this.loadPostComments(postId);
 
       if (toolsEl) toolsEl.classList.remove("hidden");
       if (imgModeGroup) imgModeGroup.classList.toggle("hidden", !parsedView.image);
@@ -2583,6 +2573,213 @@ const App = {
     }
 
     document.getElementById("post-modal").classList.remove("hidden");
+  },
+
+  // ===================================================================
+  // 게시판 댓글 (public.board_comments) 조회 · 작성 · 삭제 헬퍼
+  // ===================================================================
+  escapeHtml(val) {
+    return String(val ?? "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[ch]));
+  },
+
+  getPostId(post, type = "board", idx = 0) {
+    if (post && post.id !== undefined && post.id !== null && String(post.id).trim() !== "") {
+      return String(post.id).trim();
+    }
+    const prefix = type === "notice" ? "N" : "B";
+    return `${prefix}-legacy-${post?.date || ""}-${idx}`;
+  },
+
+  getPostCommentCount(postId, db = null) {
+    const pid = String(postId ?? "").trim();
+    if (!pid) return 0;
+    const data = db || StorageDB.getData();
+    const list = Array.isArray(data.boardComments) ? data.boardComments : [];
+    return list.filter(c => String(c.post_id) === pid).length;
+  },
+
+  updateListCommentCountBadge(postId, count) {
+    const pid = String(postId ?? "").trim();
+    if (!pid) return;
+    document.querySelectorAll(`[data-comment-count-for]`).forEach(el => {
+      if (el.getAttribute("data-comment-count-for") === pid) {
+        el.textContent = count > 0 ? `[${count}]` : "";
+      }
+    });
+  },
+
+  formatCommentDateTime(raw) {
+    if (!raw) return "-";
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) {
+      return String(raw).slice(0, 16).replace("T", " ");
+    }
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${yy}-${mm}-${dd} ${hh}:${mi}`;
+  },
+
+  canDeleteBoardComment(comment, user) {
+    if (!comment || !user) return false;
+    const isOwn = String(comment.author_id ?? "") !== "" && String(comment.author_id) === String(user.id ?? "");
+    const role = String(user.role || "").toUpperCase();
+    const pos = String(user.position || "");
+    const isAdminOrCeo = Auth.isAdmin(user) || role === "ADMIN" || role === "CEO" || pos.includes("대표");
+    return isOwn || isAdminOrCeo;
+  },
+
+  resolveCommentAuthor(comment, users) {
+    const list = Array.isArray(users) ? users : (StorageDB.getData().users || []);
+    const uid = comment?.author_id || comment?.authorId;
+    const matched = uid ? list.find(u => String(u.id) === String(uid)) : null;
+
+    const name = (matched?.name || comment?.author_name || "-").trim();
+    const dept = (matched?.dept || comment?.author_dept || "").trim();
+    const position = (matched?.position || comment?.author_position || "").trim();
+
+    return { name, dept, position };
+  },
+
+  renderPostCommentsList(comments) {
+    const listEl = document.getElementById("post-comments-list");
+    const countEl = document.getElementById("post-comments-count");
+    const list = Array.isArray(comments) ? comments : [];
+    if (countEl) countEl.textContent = String(list.length);
+    if (!listEl) return;
+
+    if (list.length === 0) {
+      listEl.innerHTML = `<div class="post-comments-empty">등록된 댓글이 없습니다. 첫 댓글을 남겨보세요!</div>`;
+      return;
+    }
+
+    const db = StorageDB.getData();
+    const user = Auth.getCurrentUser();
+
+    // 작성 시간 오름차순(오래된 순) 정렬 보장
+    const sorted = [...list].sort((a, b) =>
+      String(a.created_at || "").localeCompare(String(b.created_at || ""))
+    );
+
+    listEl.innerHTML = sorted.map(c => {
+      const author = this.resolveCommentAuthor(c, db.users);
+      const authorLabel = `${author.name}${author.position ? " " + author.position : ""}`;
+      const deptLabel = author.dept ? `(${author.dept})` : "";
+      const dateLabel = this.formatCommentDateTime(c.created_at);
+      const canDel = this.canDeleteBoardComment(c, user);
+
+      return `
+        <div class="post-comment-item">
+          <div class="post-comment-meta">
+            <div class="post-comment-author-wrap">
+              <strong class="post-comment-author">${this.escapeHtml(authorLabel)}</strong>
+              ${deptLabel ? `<span class="post-comment-dept">${this.escapeHtml(deptLabel)}</span>` : ""}
+            </div>
+            <div class="post-comment-right">
+              <span class="post-comment-date">${this.escapeHtml(dateLabel)}</span>
+              ${canDel ? `<button type="button" class="post-comment-del-btn" onclick="App.deletePostComment('${this.escapeHtml(c.id)}')">삭제</button>` : ""}
+            </div>
+          </div>
+          <div class="post-comment-body">${this.escapeHtml(c.content)}</div>
+        </div>
+      `;
+    }).join("");
+  },
+
+  async loadPostComments(postId) {
+    const pid = String(postId ?? "").trim();
+    if (!pid) return;
+    try {
+      const rows = await StorageDB.fetchBoardComments(pid);
+      // 모달이 여전히 동일한 게시글을 보고 있을 때만 렌더링
+      if (this.activePostTarget && String(this.activePostTarget.postId) === pid) {
+        this.renderPostCommentsList(rows);
+      }
+      this.updateListCommentCountBadge(pid, rows.length);
+    } catch (err) {
+      console.warn("댓글 로드 오류:", err);
+    }
+  },
+
+  async submitPostComment() {
+    if (!this.activePostTarget) return;
+    const user = Auth.getCurrentUser();
+    if (!user) return alert("로그인이 필요합니다.");
+
+    const inputEl = document.getElementById("post-comment-input");
+    const content = (inputEl ? inputEl.value : "").trim();
+    if (!content) {
+      if (inputEl) inputEl.focus();
+      return alert("댓글 내용을 입력해 주세요.");
+    }
+
+    const db = StorageDB.getData();
+    const { type, idx } = this.activePostTarget;
+    const list = type === "notice" ? (db.notices || []) : (db.boardPosts || []);
+    const item = list[idx];
+    if (!item) return;
+
+    const postId = this.getPostId(item, type, idx);
+    const myProfile = (db.users || []).find(u => String(u.id) === String(user.id)) || user;
+    const btn = document.getElementById("btn-submit-comment");
+
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "등록 중...";
+      }
+      await StorageDB.createBoardComment({
+        post_id: postId,
+        author_id: String(user.id),
+        author_name: String(myProfile.name || user.name || ""),
+        author_dept: String(myProfile.dept || user.dept || ""),
+        author_position: String(myProfile.position || user.position || ""),
+        content
+      });
+      if (inputEl) inputEl.value = "";
+      await this.loadPostComments(postId);
+      this.showToast("💬 댓글이 등록되었습니다.");
+    } catch (err) {
+      alert(err.message || "댓글 등록 중 오류가 발생했습니다.");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "댓글 등록";
+      }
+    }
+  },
+
+  async deletePostComment(commentId) {
+    if (!commentId) return;
+    const user = Auth.getCurrentUser();
+    if (!user) return;
+
+    const db = StorageDB.getData();
+    const targetCmt = (db.boardComments || []).find(c => String(c.id) === String(commentId));
+    if (targetCmt && !this.canDeleteBoardComment(targetCmt, user)) {
+      return alert("⛔ 본인이 작성한 댓글이거나 관리자만 삭제할 수 있습니다.");
+    }
+
+    if (!confirm("이 댓글을 삭제하시겠습니까?")) return;
+
+    const postId = this.activePostTarget?.postId || targetCmt?.post_id;
+    try {
+      await StorageDB.deleteBoardComment(commentId);
+      if (postId) {
+        await this.loadPostComments(postId);
+      }
+      this.showToast("🗑️ 댓글이 삭제되었습니다.");
+    } catch (err) {
+      alert(err.message || "댓글 삭제 중 오류가 발생했습니다.");
+    }
   },
 
   fillMyAuthorName() {
@@ -2633,14 +2830,22 @@ const App = {
     this.navigateTo(type);
   },
 
-  deletePost(type, idx) {
+  async deletePost(type, idx) {
     if (!confirm("이 글을 정말 삭제하시겠습니까?")) return;
     const db = StorageDB.getData();
     const list = type === "notice" ? db.notices : db.boardPosts;
     if (!list || !list[idx]) return;
 
+    const targetPost = list[idx];
+    const postId = this.getPostId(targetPost, type, idx);
+
     list.splice(idx, 1);
     StorageDB.saveData(db);
+    try {
+      await StorageDB.deleteBoardCommentsByPostId(postId);
+    } catch (e) {
+      console.warn("댓글 정리 중 오류:", e);
+    }
     this.closePostModal();
     this.showToast("삭제되었습니다.");
     this.navigateTo(type);

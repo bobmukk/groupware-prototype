@@ -9,7 +9,7 @@ const SAVED_EMAIL_KEY = "gw_saved_login_email";
 const KEEP_LOGIN_KEY = "gw_keep_login_flag";
 
 // 👇 회원님(마스터 관리자)의 이메일 주소를 그대로 입력하세요!
-const MASTER_ADMIN_EMAIL = "dyswn123@naver.com";
+const MASTER_ADMIN_EMAIL = "";
 
 // 로그인 유지 여부에 따라 localStorage / sessionStorage 자동 선택 + 모바일 메모리 폴백
 const SafeAuthStore = {
